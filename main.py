@@ -1,24 +1,21 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from datetime import datetime
 from bson import ObjectId, errors
-
-from app.database import (
-    MongoDBManager
-)
+from app.database import MongoDBManager, get_database
 from app.routers import (
     auth, user, interview, facial_analysis,
     speech_analysis, interview_question
 )
 from app.routers.websocket import router as websocket_router
 from app.schemas.user import User
+from app.config import settings
 
 app = FastAPI()
 
 # Initialize MongoDB Manager
-
 mongo_manager = MongoDBManager(
     uri=settings.MONGO_URI,
-    db_name=settings.MONGO_DB,  # Ensure this matches your settings
+    db_name=settings.MONGO_DB_NAME,
     settings=settings
 )
 
@@ -43,28 +40,25 @@ app.include_router(facial_analysis.router)
 app.include_router(speech_analysis.router)
 app.include_router(interview_question.router, prefix="/questions")
 
-# Async MongoDB Collection
-users_collection = mongo_manager.get_database()["users"]
 
 # Convert MongoDB document to dictionary
-
-
 def serialize_user(user):
     return {
         "id": str(user["_id"]),
         "name": user.get("name", "Anonymous"),
         "email": user.get("email", "N/A"),
         "imageUrl": user.get("imageUrl", ""),
-        "createdAt": user.get("createdAt", datetime.utcnow()),
-        "updatedAt": user.get("updatedAt", datetime.utcnow()),
+        "createdAt": user.get("createdAt", datetime.utcnow()),  # Use actual MongoDB value
+        "updatedAt": user.get("updatedAt", datetime.utcnow()),  # Use actual MongoDB value
     }
 
+
 # Store User API
-
-
 @app.post("/auth/store-user/")
-async def store_user(user: User):
+async def store_user(user: User, db=Depends(get_database)):
     try:
+        users_collection = db["users"]
+
         existing_user = await users_collection.find_one({"email": user.email})
         if existing_user:
             return {
@@ -76,8 +70,8 @@ async def store_user(user: User):
             "name": user.name or "Anonymous",
             "email": user.email or "N/A",
             "imageUrl": user.imageUrl,
-            "createdAt": user.createdAt,
-            "updatedAt": user.updatedAt,
+            "createdAt": datetime.utcnow(),
+            "updatedAt": datetime.utcnow(),
         }
 
         result = await users_collection.insert_one(new_user)
@@ -94,11 +88,10 @@ async def store_user(user: User):
             detail=str(e)
         )
 
+
 # Get User API
-
-
 @app.get("/auth/get-user/{user_id}")
-async def get_user(user_id: str):
+async def get_user(user_id: str, db=Depends(get_database)):
     try:
         obj_id = ObjectId(user_id)
     except errors.InvalidId:
@@ -107,6 +100,7 @@ async def get_user(user_id: str):
             detail="Invalid user ID format"
         )
 
+    users_collection = db["users"]
     user = await users_collection.find_one({"_id": obj_id})
     if not user:
         raise HTTPException(
@@ -116,13 +110,12 @@ async def get_user(user_id: str):
 
     return serialize_user(user)
 
+
 # MongoDB Health Check
-
-
 @app.get("/health")
-async def health_check():
+async def health_check(db=Depends(get_database)):
     try:
-        await mongo_manager.get_database().command('ping')
+        await db.command("ping")
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(

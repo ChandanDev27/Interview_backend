@@ -7,7 +7,7 @@ motor
 python-dotenv
 httpx
 deepface
-tensorflow
+tensorflow-cpu
 tf-keras
 opencv-python-headless
 numpy
@@ -22,4 +22,7 @@ aiofiles
 pydub
 slowapi
 vaderSentiment
-decouple
+python-decouple
+pydantic[email]
+numpy<2
+spacy

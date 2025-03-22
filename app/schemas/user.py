@@ -31,3 +31,11 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class UserSchema(BaseModel):
+    id: str
+    username: str
+
+    class Config:
+        populate_by_name = True

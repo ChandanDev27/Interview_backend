@@ -15,3 +15,11 @@ class TokenData(BaseModel):
     client_id: Optional[str] = Field(
         default=None, description="Client ID associated with the token"
     )
+
+
+class UserSchema(BaseModel):
+    id: str
+    username: str
+
+    class Config:
+        populate_by_name = True

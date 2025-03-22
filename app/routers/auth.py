@@ -7,9 +7,9 @@ from slowapi.util import get_remote_address
 
 from ..services.auth import authenticate_user, create_access_token
 from ..services.utils import get_password_hash
-from ..database import db
+from ..database import get_database
 from ..schemas.user import UserCreate
-from ..config import ACCESS_TOKEN_EXPIRE_MINUTES
+from app.config import settings
 
 # Initialize Router and Rate Limiter
 router = APIRouter(tags=["Authentication"])
@@ -18,6 +18,9 @@ limiter = Limiter(key_func=get_remote_address)
 # Logger setup
 logging.basicConfig(level=logging.INFO)  # Set to INFO for production
 logger = logging.getLogger(__name__)
+
+
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
 
 @router.post("/token")
@@ -48,22 +51,24 @@ async def register(user: UserCreate):
     Register a new user with hashed password and initial role.
     """
     try:
+        db = await get_database()
+
         existing_count = await db["users"].count_documents(
             {"client_id": user.client_id}
         )
         if existing_count > 0:
             logger.warning(
-                f"⚠️ Registration failed: Client ID '{user.client_id}' "
-                f"already exists"
+                f"⚠️ Registration failed: Client ID '{user.client_id}' already exists"
             )
             raise HTTPException(
                 status_code=400, detail="Client ID already registered"
             )
 
         hashed_password = get_password_hash(user.client_secret)
+
         new_user = {
             "client_id": user.client_id,
-            "hashed_password": hashed_password,
+            "client_secret": hashed_password,
             "role": user.role,
             "interviews": []
         }

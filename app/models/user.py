@@ -19,3 +19,11 @@ class UserCreate(BaseModel):
 class UserResponse(BaseModel):
     client_id: str
     role: Literal["candidate", "admin"]
+
+
+class UserSchema(BaseModel):
+    id: str
+    username: str
+
+    class Config:
+        populate_by_name = True

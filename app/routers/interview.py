@@ -3,7 +3,7 @@ from bson import ObjectId
 from datetime import datetime
 import logging
 
-from app.database import db
+from app.database import get_database
 from ..schemas.interview import (
     InterviewCreate,
     InterviewResponse,
@@ -21,7 +21,9 @@ router = APIRouter(prefix="/interviews", tags=["Interviews"])
 
 @router.on_event("startup")
 async def ensure_indexes():
+    db = await get_database()
     await db["interviews"].create_index([("user_id", 1)])
+    db = await get_database()
     await db["interviews"].create_index([("created_at", 1)])
 
 # Get all interviews for a user
@@ -30,7 +32,7 @@ async def ensure_indexes():
 @router.get("/", response_model=List[InterviewResponse])
 async def get_interviews(current_user: dict = Depends(get_current_user)):
     user_id = str(current_user["client_id"])
-    interviews = await db["interviews"].find(
+    interviews = await get_database["interviews"].find(
         {"user_id": user_id}
     ).to_list(length=100)
 
@@ -57,7 +59,7 @@ async def create_interview(
             }
         )
 
-        result = await db["interviews"].insert_one(interview_data)
+        result = await get_database["interviews"].insert_one(interview_data)
         interview_data["id"] = str(result.inserted_id)
 
         logger.info(f"✅ Interview created: {current_user['client_id']}")
@@ -79,7 +81,7 @@ async def submit_response(
         user_id = str(current_user["client_id"])
         interview_obj_id = ObjectId(interview_id)
 
-        result = await db["interviews"].update_one(
+        result = await get_database["interviews"].update_one(
             {"_id": interview_obj_id, "user_id": user_id},
             {
                 "$push": {
@@ -123,7 +125,7 @@ async def store_ai_feedback(
             "timestamp": datetime.utcnow(),
         }
 
-        result = await db["interviews"].update_one(
+        result = await get_database["interviews"].update_one(
             {"_id": interview_obj_id, "user_id": user_id},
             {
                 "$push": {"ai_feedback": feedback_entry},

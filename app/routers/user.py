@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from ..services.auth import get_current_user
-from ..database import db
+from ..database import get_database
 import logging
 
 router = APIRouter(tags=["Users"])
@@ -42,7 +42,7 @@ async def get_admin_users(
         raise HTTPException(status_code=403, detail="Not authorized")
     try:
         # Explicitly select only required fields
-        users = await db["users"].find(
+        users = await get_database["users"].find(
             {}, {
                 "_id": 0,
                 "client_id": 1,

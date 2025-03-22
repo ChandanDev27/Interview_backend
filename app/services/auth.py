@@ -4,8 +4,11 @@ from fastapi import HTTPException, status, Depends
 from fastapi.security import OAuth2PasswordBearer
 import logging
 from passlib.context import CryptContext
-from ..config import SECRET_KEY, ALGORITHM
-from ..database import db
+from app.config import settings
+from app.database import get_database
+
+SECRET_KEY = settings.SECRET_KEY
+ALGORITHM = settings.ALGORITHM
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -24,6 +27,7 @@ async def get_user(client_id: str):
     """
     Fetch user details from the database using client_id.
     """
+    db = await get_database()  # Fetch the database dynamically
     user = await db["users"].find_one({"client_id": str(client_id)})
     if user:
         return {
@@ -31,7 +35,6 @@ async def get_user(client_id: str):
             "client_secret": user["client_secret"],
             "role": user["role"]
         }
-    logger.error(f"User not found for client_id: {client_id}")
     return None
 
 
@@ -47,7 +50,7 @@ async def authenticate_user(client_id: str, password: str):
     Authenticate a user by verifying their client_id and password.
     """
     logger.debug(f"Authenticating user with client_id: {client_id}")
-    user = await db["users"].find_one({"client_id": client_id})
+    user = await get_database["users"].find_one({"client_id": client_id})
     if not user:
         logger.error("User not found in database")
         return None
