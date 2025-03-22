@@ -15,7 +15,12 @@ from app.schemas.user import User
 app = FastAPI()
 
 # Initialize MongoDB Manager
-mongo_manager = MongoDBManager()
+
+mongo_manager = MongoDBManager(
+    uri=settings.MONGO_URI,
+    db_name=settings.MONGO_DB,  # Ensure this matches your settings
+    settings=settings
+)
 
 # FastAPI Lifecycle Events
 
