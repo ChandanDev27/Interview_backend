@@ -5,19 +5,6 @@ from bson import ObjectId
 from enum import Enum
 
 
-# MongoDB ObjectId handling
-class PyObjectId(str):
-    @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
-
-    @classmethod
-    def validate(cls, v):
-        if not ObjectId.is_valid(v):
-            raise ValueError("Invalid ObjectId")
-        return str(v)
-
-
 # Enum for interview status
 class InterviewStatus(str, Enum):
     PENDING = "pending"
@@ -27,14 +14,17 @@ class InterviewStatus(str, Enum):
 
 # Schema for creating an interview
 class InterviewCreate(BaseModel):
-    user_id: PyObjectId
+    user_id: str  # Use string type for user_id instead of PyObjectId
     questions: List[str]
+
+    class Config:
+        arbitrary_types_allowed = True
 
 
 # Schema for API response
 class InterviewResponse(BaseModel):
-    id: PyObjectId = Field(..., alias="_id")
-    user_id: PyObjectId
+    id: str = Field(..., alias="_id")  # Use string type for id instead of PyObjectId
+    user_id: str
     questions: List[str]
     responses: List[str] = Field(default_factory=list)
     feedback: Optional[str] = None
@@ -42,9 +32,9 @@ class InterviewResponse(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
-        from_attributes = True
         json_encoders = {ObjectId: str}
         allow_population_by_field_name = True
+        arbitrary_types_allowed = True
 
 
 # Schema for submitting interview responses
