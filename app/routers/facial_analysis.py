@@ -20,7 +20,7 @@ async def analyze_facial(file: UploadFile = File()):
         # Check MIME type
         unsupported_type_msg = "Only MP4 video files are allowed"
         if file.content_type not in ALLOWED_VIDEO_TYPES:
-            logger.warning(f"🚨 Unsupported file type: {file.content_type}")
+            logger.error(f"🚨 Unsupported file type: {file.content_type}")
             raise HTTPException(status_code=400, detail=unsupported_type_msg)
 
         # Save video to a temporary file
@@ -42,6 +42,9 @@ async def analyze_facial(file: UploadFile = File()):
         return {
             "facial_expression": emotion
         }
+
+    except HTTPException as he:
+        logger.error(f"HTTP Exception: {he.detail}")
 
     except HTTPException as he:
         raise he  # Re-raise known HTTP errors

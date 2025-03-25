@@ -28,6 +28,7 @@ class UserCreate(BaseModel):
 
 class UserResponse(BaseModel):
     client_id: str
+    roll: str
 
     class Config:
         from_attributes = True

@@ -7,6 +7,7 @@ from passlib.context import CryptContext
 from app.config import settings
 from app.database import get_database
 
+# Load settings
 SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = settings.ALGORITHM
 
@@ -27,15 +28,23 @@ async def get_user(client_id: str):
     """
     Fetch user details from the database using client_id.
     """
-    db = await get_database()  # Fetch the database dynamically
-    user = await db["users"].find_one({"client_id": str(client_id)})
-    if user:
-        return {
-            "client_id": str(user["client_id"]),
-            "client_secret": user["client_secret"],
-            "role": user["role"]
-        }
-    return None
+    try:
+        db = await get_database()  # Ensure the database is properly fetched
+        user = await db["users"].find_one({"client_id": client_id})
+
+        if user:
+            return {
+                "client_id": str(user["client_id"]),
+                "client_secret": user["client_secret"],
+                "role": user["role"]
+            }
+
+        logger.warning(f"User not found: {client_id}")
+        return None
+
+    except Exception as e:
+        logger.error(f"Error fetching user from DB: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 def verify_password(plain_password, hashed_password):
@@ -49,18 +58,26 @@ async def authenticate_user(client_id: str, password: str):
     """
     Authenticate a user by verifying their client_id and password.
     """
-    logger.debug(f"Authenticating user with client_id: {client_id}")
-    user = await get_database["users"].find_one({"client_id": client_id})
-    if not user:
-        logger.error("User not found in database")
-        return None
+    try:
+        logger.debug(f"Authenticating user with client_id: {client_id}")
 
-    if not verify_password(password, user["client_secret"]):
-        logger.error("Password verification failed")
-        return None
+        db = await get_database()  # Ensure database connection is fetched properly
+        user = await db["users"].find_one({"client_id": client_id})
 
-    logger.info(f"User {client_id} authenticated successfully!")
-    return user
+        if not user:
+            logger.warning(f"Authentication failed: User {client_id} not found")
+            return None
+
+        if not verify_password(password, user["client_secret"]):
+            logger.warning(f"Authentication failed: Incorrect password for {client_id}")
+            return None
+
+        logger.info(f"User {client_id} authenticated successfully!")
+        return user
+
+    except Exception as e:
+        logger.error(f"Authentication error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
@@ -77,9 +94,11 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         logger.debug(f"Decoding token: {token}")
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         client_id: str = payload.get("sub")
+
         if client_id is None:
             logger.error("Client ID missing in token")
             raise credentials_exception
+
     except ExpiredSignatureError:
         logger.error("Token has expired")
         raise HTTPException(
@@ -87,17 +106,18 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
             detail="Token has expired",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
     except JWTError:
         logger.error("Invalid JWT token")
         raise credentials_exception
 
     logger.info(f"Token decoded successfully for client_id: {client_id}")
+
     user = await get_user(client_id)
     if user is None:
-        logger.error(f"User not found: {client_id}")
+        logger.warning(f"User not found for token client_id: {client_id}")
         raise credentials_exception
 
-    logger.info(f"User authenticated: {user}")
     return user
 
 
@@ -127,7 +147,16 @@ def create_access_token(data: dict, expires_delta: timedelta = DEFAULT_EXPIRY):
     """
     Generate a JWT access token with an expiration time.
     """
-    to_encode = data.copy()
-    expire = datetime.utcnow() + expires_delta
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    try:
+        to_encode = data.copy()
+        expire = datetime.utcnow() + expires_delta
+        to_encode.update({"exp": expire})
+
+        token = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+        logger.info("Access token generated successfully")
+
+        return token
+
+    except Exception as e:
+        logger.error(f"Error generating access token: {str(e)}")
+        raise HTTPException(status_code=500, detail="Token generation error")

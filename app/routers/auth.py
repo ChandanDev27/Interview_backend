@@ -8,7 +8,7 @@ from slowapi.util import get_remote_address
 from ..services.auth import authenticate_user, create_access_token
 from ..services.utils import get_password_hash
 from ..database import get_database
-from ..schemas.user import UserCreate
+from ..schemas.user import UserCreate, UserResponse
 from app.config import settings
 
 # Initialize Router and Rate Limiter
@@ -16,7 +16,7 @@ router = APIRouter(tags=["Authentication"])
 limiter = Limiter(key_func=get_remote_address)
 
 # Logger setup
-logging.basicConfig(level=logging.INFO)  # Set to INFO for production
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -45,13 +45,13 @@ async def login_for_access_token(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.post("/register")
+@router.post("/register", response_model=UserResponse)
 async def register(user: UserCreate):
-    """
-    Register a new user with hashed password and initial role.
-    """
+    # Register a new user with hashed password and initial role.
     try:
         db = await get_database()
+
+        logger.debug(f"🔹 Received registration request: {user.dict()}")
 
         existing_count = await db["users"].count_documents(
             {"client_id": user.client_id}
@@ -64,6 +64,9 @@ async def register(user: UserCreate):
                 status_code=400, detail="Client ID already registered"
             )
 
+        if not user.client_secret or not isinstance(user.client_secret, str):
+            raise HTTPException(status_code=400, detail="Client secret must be a valid string")
+
         hashed_password = get_password_hash(user.client_secret)
 
         new_user = {
@@ -75,8 +78,9 @@ async def register(user: UserCreate):
 
         await db["users"].insert_one(new_user)
         logger.info(f"✅ New client '{user.client_id}' registered successfully")
+
         return {"message": "Client registered successfully"}
 
     except Exception as e:
         logger.exception(f"❌ Error registering user: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal Server Error")
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
