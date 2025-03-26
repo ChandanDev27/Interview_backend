@@ -1,13 +1,11 @@
-from pydantic import BaseModel, Field
-from typing import List, Optional, Literal
+from pydantic import BaseModel
+from typing import Optional, Literal
 
 
 class User(BaseModel):
-    client_id: str
-    client_secret: str
-    role: Literal["candidate", "admin"] = "candidate"
-    is_admin: bool = False
-    interviews: List[str] = Field(default_factory=list)
+    id: str
+    username: str
+    email: str
 
 
 class UserCreate(BaseModel):
@@ -27,3 +25,4 @@ class UserSchema(BaseModel):
 
     class Config:
         populate_by_name = True
+        from_attributes = True
