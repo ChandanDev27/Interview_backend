@@ -3,9 +3,11 @@ from jose import JWTError, jwt, ExpiredSignatureError
 from fastapi import HTTPException, status, Depends
 from fastapi.security import OAuth2PasswordBearer
 import logging
+import re
 from passlib.context import CryptContext
 from app.config import settings
 from app.database import get_database
+from app.services.utils import verify_password
 
 # Load settings
 SECRET_KEY = settings.SECRET_KEY
@@ -47,37 +49,31 @@ async def get_user(client_id: str):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-def verify_password(plain_password, hashed_password):
-    """
-    Verify a hashed password.
-    """
-    return pwd_context.verify(plain_password, hashed_password)
+def validate_password(password: str):
+    try:
+        if len(password) < 8:
+            raise ValueError("Password must be at least 8 characters long")
+        if not re.search(r"[A-Z]", password):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not re.search(r"\d", password):
+            raise ValueError("Password must contain at least one digit")
+        if not re.search(r"[!@#$%^&*(),.?\":{}|<>]", password):
+            raise ValueError("Password must contain at least one special character")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 async def authenticate_user(client_id: str, password: str):
-    """
-    Authenticate a user by verifying their client_id and password.
-    """
-    try:
-        logger.debug(f"Authenticating user with client_id: {client_id}")
+    db = await get_database()
+    user = await db["users"].find_one({"client_id": client_id})
 
-        db = await get_database()  # Ensure database connection is fetched properly
-        user = await db["users"].find_one({"client_id": client_id})
+    if not user:
+        return None
 
-        if not user:
-            logger.warning(f"Authentication failed: User {client_id} not found")
-            return None
+    if not verify_password(password, user["client_secret"]):
+        return None
 
-        if not verify_password(password, user["client_secret"]):
-            logger.warning(f"Authentication failed: Incorrect password for {client_id}")
-            return None
-
-        logger.info(f"User {client_id} authenticated successfully!")
-        return user
-
-    except Exception as e:
-        logger.error(f"Authentication error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+    return user
 
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):

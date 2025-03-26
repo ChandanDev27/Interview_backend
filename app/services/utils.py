@@ -21,15 +21,8 @@ def is_password_strong(password: str) -> bool:
 
 
 def get_password_hash(password: str) -> str:
-    """Hash a password if it meets security requirements."""
-    if not is_password_strong(password):
-        raise WeakPasswordError("Password does not meet security requirements.")
     return pwd_context.hash(password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a plain password against a hashed password."""
-    try:
-        return pwd_context.verify(plain_password, hashed_password)
-    except Exception as e:
-        raise ValueError(f"Error verifying password: {e}")
+    return pwd_context.verify(plain_password, hashed_password)
