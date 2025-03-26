@@ -17,8 +17,7 @@ class InterviewCreate(BaseModel):
     user_id: str  # Use string type for user_id instead of PyObjectId
     questions: List[str]
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = {"from_attributes": True}
 
 
 # Schema for API response
@@ -31,10 +30,11 @@ class InterviewResponse(BaseModel):
     status: InterviewStatus
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    class Config:
-        json_encoders = {ObjectId: str}
-        populate_by_name = True
-        arbitrary_types_allowed = True
+    model_config = {
+        "json_encoders": {ObjectId: str},
+        "populate_by_name": True,
+        "from_attributes": True,
+    }
 
 
 # Schema for submitting interview responses

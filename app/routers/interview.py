@@ -14,39 +14,39 @@ from ..services.auth import get_current_user
 from typing import List
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/interviews", tags=["Interviews"])
-
-# Ensure indexing for faster queries
+router = APIRouter(prefix="/api/interviews", tags=["Interviews"])
 
 
 @router.on_event("startup")
 async def ensure_indexes():
+    # Ensures MongoDB indexes on startup.
     db = await get_database()
     await db["interviews"].create_index([("user_id", 1)])
     db = await get_database()
     await db["interviews"].create_index([("created_at", 1)])
 
-# Get all interviews for a user
 
+# ✅ Get all interviews for a user
 
 @router.get("/", response_model=List[InterviewResponse])
 async def get_interviews(current_user: dict = Depends(get_current_user)):
+    # Retrieves all interviews for the logged-in user.
+    db = await get_database()
     user_id = str(current_user["client_id"])
-    interviews = await get_database["interviews"].find(
-        {"user_id": user_id}
-    ).to_list(length=100)
+    interviews = await db["interviews"].find({"user_id": user_id}).to_list(length=100)
 
-    return [
-        InterviewResponse(**{**i, "id": str(i["_id"])}) for i in interviews
-    ]
+    return [InterviewResponse(**{**i, "id": str(i["_id"])}) for i in interviews]
 
 
-# Create an interview
+# ✅ Create an interview
 @router.post("/", response_model=InterviewResponse)
 async def create_interview(
     interview: InterviewCreate, current_user: dict = Depends(get_current_user)
 ):
+    # Creates a new interview for the user.
     try:
+        db = await get_database()
+
         interview_data = interview.model_dump()
         interview_data.update(
             {
@@ -59,10 +59,10 @@ async def create_interview(
             }
         )
 
-        result = await get_database["interviews"].insert_one(interview_data)
+        result = await db["interviews"].insert_one(interview_data)
         interview_data["id"] = str(result.inserted_id)
 
-        logger.info(f"✅ Interview created: {current_user['client_id']}")
+        logger.info(f"✅ Interview created for user: {current_user['client_id']}")
         return InterviewResponse(**interview_data)
 
     except Exception as e:
@@ -77,11 +77,18 @@ async def submit_response(
     response_data: ResponseSubmission,
     current_user: dict = Depends(get_current_user),
 ):
+    # Allows the user to submit responses to an interview.
     try:
+        db = await get_database()
         user_id = str(current_user["client_id"])
-        interview_obj_id = ObjectId(interview_id)
 
-        result = await get_database["interviews"].update_one(
+        # ✅ Validate ObjectId format
+        try:
+            interview_obj_id = ObjectId(interview_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid interview ID format")
+
+        result = await db["interviews"].update_one(
             {"_id": interview_obj_id, "user_id": user_id},
             {
                 "$push": {
@@ -116,16 +123,23 @@ async def store_ai_feedback(
     feedback_data: AIAnalysis,
     current_user: dict = Depends(get_current_user),
 ):
+    # Stores AI-generated feedback for an interview.
     try:
+        db = await get_database()
         user_id = str(current_user["client_id"])
-        interview_obj_id = ObjectId(interview_id)
+
+        # ✅ Validate ObjectId format
+        try:
+            interview_obj_id = ObjectId(interview_id)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid interview ID format")
 
         feedback_entry = {
             "feedback": feedback_data.feedback,
             "timestamp": datetime.utcnow(),
         }
 
-        result = await get_database["interviews"].update_one(
+        result = await db["interviews"].update_one(
             {"_id": interview_obj_id, "user_id": user_id},
             {
                 "$push": {"ai_feedback": feedback_entry},
