@@ -1,11 +1,10 @@
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Literal
 from datetime import datetime
-from bson import ObjectId
 
 
 class Interview(BaseModel):
-    id: str = Field(default_factory=lambda: str(ObjectId()))
+    id: Optional[str] = None  # ✅ Changed to None, MongoDB will generate `_id`
     user_id: str
     questions: List[str]
     responses: List[Optional[str]] = Field(default_factory=list)
@@ -16,15 +15,20 @@ class Interview(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     status_history: List[str] = Field(default_factory=list)
 
-    @validator("responses", pre=True, always=True)
+    @field_validator("responses", mode="before")
+    @classmethod
     def set_default_responses(cls, v, values):
         if not v and "questions" in values:
             return [None] * len(values["questions"])
         return v
 
-    @validator("status", pre=True, always=True)
+    @field_validator("status", mode="before")
+    @classmethod
     def track_status_change(cls, v, values):
-        if "status_history" not in values:
-            values["status_history"] = []
-        values["status_history"].append(v)
+        if "status_history" in values and isinstance(values["status_history"], list):
+            values["status_history"].append(v)
         return v
+
+    class Config:
+        populate_by_name = True
+        from_attributes = True

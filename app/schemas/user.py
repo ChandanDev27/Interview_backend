@@ -1,16 +1,11 @@
-from pydantic import BaseModel, Field, EmailStr, HttpUrl
+from pydantic import BaseModel, Field, EmailStr
+from typing import Optional
 
 
 class User(BaseModel):
-    name: str = Field(
-        ..., min_length=2, max_length=50, description="User's full name"
-    )
-    email: EmailStr = Field(
-        ..., description="User's email address"
-        )
-    imageUrl: HttpUrl = Field(
-        ..., description="URL of the user's profile image"
-        )
+    name: str = Field(..., min_length=2, max_length=50, description="User's full name")
+    email: EmailStr = Field(..., description="User's email address")
+    imageUrl: Optional[str] = Field(None, description="URL of the user's profile image")  # ✅ Changed HttpUrl to str
 
 
 class UserCreate(BaseModel):
@@ -28,7 +23,7 @@ class UserResponse(BaseModel):
 
 
 class UserSchema(BaseModel):
-    id: str
+    id: Optional[str] = None
     username: str
 
     class Config:

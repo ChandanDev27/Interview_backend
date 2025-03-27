@@ -1,7 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
-from bson import ObjectId
 from enum import Enum
 
 
@@ -14,15 +13,16 @@ class InterviewStatus(str, Enum):
 
 # Schema for creating an interview
 class InterviewCreate(BaseModel):
-    user_id: str  # Use string type for user_id instead of PyObjectId
+    user_id: str
     questions: List[str]
 
-    model_config = {"from_attributes": True}
+    class Config:
+        from_attributes = True
 
 
 # Schema for API response
 class InterviewResponse(BaseModel):
-    id: str = Field(..., alias="_id")  # Use string type for id instead of PyObjectId
+    id: Optional[str] = None
     user_id: str
     questions: List[str]
     responses: List[str] = Field(default_factory=list)
@@ -30,11 +30,9 @@ class InterviewResponse(BaseModel):
     status: InterviewStatus
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
-    model_config = {
-        "json_encoders": {ObjectId: str},
-        "populate_by_name": True,
-        "from_attributes": True,
-    }
+    class Config:
+        populate_by_name = True
+        from_attributes = True
 
 
 # Schema for submitting interview responses
