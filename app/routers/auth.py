@@ -1,7 +1,9 @@
 import random
 import asyncio
+import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel, EmailStr
 from datetime import timedelta
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -14,6 +16,13 @@ from app.config import settings
 
 router = APIRouter(tags=["Authentication"])
 limiter = Limiter(key_func=get_remote_address)
+
+
+class OTPRequest(BaseModel):
+    email: EmailStr
+
+
+otp_store = {}
 
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
@@ -72,22 +81,40 @@ async def register(user: UserCreate):
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
 
 
-@router.post("/verify-otp")
-async def verify_otp(client_id: str, otp: str):
-    db = await get_database()
-    user = await db["users"].find_one({"client_id": client_id})
+class OTPVerifyRequest(BaseModel):
+    email: EmailStr
+    otp: str
 
+
+@router.post("/auth/send-otp")
+async def send_otp(request: OTPRequest):
+    email = request.email
+    user = await get_database["users"].find_one({"email": email})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if user["otp"] == otp:
-        await db["users"].update_one(
-            {"client_id": client_id},
-            {"$set": {"is_verified": True}}
-        )
-        return {"message": "Email verified successfully"}
-    else:
+    otp = str(random.randint(100000, 999999))
+    otp_store[email] = {"otp": otp, "expires_at": datetime.datetime.utcnow() + datetime.timedelta(minutes=5)}
+
+    print(f"OTP for {email}: {otp}")
+
+    return {"message": "OTP sent successfully"}
+
+
+@router.post("/auth/verify-otp")
+async def verify_otp(request: OTPVerifyRequest):
+    email = request.email
+    otp = request.otp
+
+    if email not in otp_store or otp_store[email]["otp"] != otp:
         raise HTTPException(status_code=400, detail="Invalid OTP")
+
+    if datetime.datetime.utcnow() > otp_store[email]["expires_at"]:
+        raise HTTPException(status_code=400, detail="OTP expired")
+
+    del otp_store[email]
+
+    return {"message": "OTP verified successfully"}
 
 
 @router.post("/forgot-password")

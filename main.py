@@ -32,7 +32,7 @@ async def shutdown_event():
     await mongo_manager.close()
 
 # Include Routers
-app.include_router(auth.router, prefix="/auth")
+app.include_router(auth.router, tags=["Authentication"])
 app.include_router(user.router)
 app.include_router(interview.router)
 app.include_router(websocket_router, prefix="/api")
