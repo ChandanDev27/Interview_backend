@@ -1,23 +1,31 @@
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from app.config import settings
+from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
+from pydantic import EmailStr
+from dotenv import load_dotenv
+
+load_dotenv()
+
+conf = ConnectionConfig(
+    MAIL_USERNAME="your-email@example.com",
+    MAIL_PASSWORD="your-password",
+    MAIL_FROM="your-email@example.com",
+    MAIL_PORT=587,
+    MAIL_SERVER="smtp.gmail.com",
+    MAIL_STARTTLS=True,
+    MAIL_SSL_TLS=False,
+    USE_CREDENTIALS=True,
+)
 
 
-def send_email(to_email: str, subject: str, body: str):
-    try:
-        msg = MIMEMultipart()
-        msg["From"] = settings.EMAIL_FROM
-        msg["To"] = to_email
-        msg["Subject"] = subject
-        msg.attach(MIMEText(body, "html"))
+async def send_otp_email(email: EmailStr, otp: str):
+    subject = "Your OTP Code for AI Interview App"
+    body = f"Your OTP code is: {otp}. It is valid for 10 minutes."
 
-        with smtplib.SMTP(settings.SMTP_SERVER, settings.SMTP_PORT) as server:
-            server.starttls()
-            server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
-            server.sendmail(settings.EMAIL_FROM, to_email, msg.as_string())
+    message = MessageSchema(
+        subject=subject,
+        recipients=[email],
+        body=body,
+        subtype="plain"
+    )
 
-        return True
-    except Exception as e:
-        print(f"Error sending email: {e}")
-        return False
+    fm = FastMail(conf)
+    await fm.send_message(message)

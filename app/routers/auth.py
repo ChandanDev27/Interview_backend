@@ -1,9 +1,11 @@
+import random
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from datetime import timedelta
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-
+from ..services.email import send_otp_email
 from ..services.auth import authenticate_user, create_access_token
 from ..services.utils import get_password_hash
 from ..database import get_database
@@ -27,6 +29,9 @@ async def login_for_access_token(
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
+    if "client_id" not in user:
+        raise HTTPException(status_code=500, detail="User data corrupted: missing client_id")
+
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user["client_id"]}, expires_delta=access_token_expires
@@ -39,21 +44,90 @@ async def login_for_access_token(
 async def register(user: UserCreate):
     try:
         db = await get_database()
+        if not user.client_id or not user.client_secret:
+            raise HTTPException(status_code=400, detail="Client ID and Client Secret are required.")
+
         existing_user = await db["users"].find_one({"client_id": user.client_id})
         if existing_user:
             raise HTTPException(status_code=400, detail="Client ID already registered")
 
         hashed_password = get_password_hash(user.client_secret)
 
+        otp = str(random.randint(100000, 999999))
+
         new_user = {
             "client_id": user.client_id,
             "client_secret": hashed_password,
             "role": user.role,
-            "interviews": []
+            "email": user.email,
+            "otp": otp,
+            "is_verified": False
         }
 
         await db["users"].insert_one(new_user)
+        asyncio.create_task(send_otp_email(user.email, otp))
         return UserResponse(client_id=user.client_id, role=user.role)
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+
+
+@router.post("/verify-otp")
+async def verify_otp(client_id: str, otp: str):
+    db = await get_database()
+    user = await db["users"].find_one({"client_id": client_id})
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user["otp"] == otp:
+        await db["users"].update_one(
+            {"client_id": client_id},
+            {"$set": {"is_verified": True}}
+        )
+        return {"message": "Email verified successfully"}
+    else:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+
+
+@router.post("/forgot-password")
+async def forgot_password(email: str):
+    db = await get_database()
+    user = await db["users"].find_one({"email": email})
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Generate OTP for password reset
+    reset_otp = str(random.randint(100000, 999999))
+
+    await db["users"].update_one(
+        {"email": email},
+        {"$set": {"reset_otp": reset_otp}}
+    )
+
+    # Send OTP to email
+    asyncio.create_task(send_otp_email(email, reset_otp))
+
+    return {"message": "OTP sent to email for password reset"}
+
+
+@router.post("/reset-password")
+async def reset_password(email: str, otp: str, new_password: str):
+    db = await get_database()
+    user = await db["users"].find_one({"email": email})
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.get("reset_otp") != otp:
+        raise HTTPException(status_code=400, detail="Invalid OTP")
+
+    hashed_password = get_password_hash(new_password)
+
+    await db["users"].update_one(
+        {"email": email},
+        {"$set": {"client_secret": hashed_password, "reset_otp": None}}
+    )
+
+    return {"message": "Password reset successful"}

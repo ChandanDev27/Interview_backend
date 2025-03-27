@@ -63,15 +63,19 @@ def validate_password(password: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-async def authenticate_user(client_id: str, password: str):
+async def authenticate_user(username: str, password: str):
     db = await get_database()
-    user = await db["users"].find_one({"client_id": client_id})
+    user = await db["users"].find_one({"client_id": username})
 
     if not user:
-        return None
+        print("❌ User not found")
+        return False
+
+    print("✅ User found:", user["client_id"])
 
     if not verify_password(password, user["client_secret"]):
-        return None
+        print("❌ Password mismatch")
+        return False
 
     return user
 
