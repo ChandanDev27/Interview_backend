@@ -31,7 +31,7 @@ async def get_user(client_id: str):
     Fetch user details from the database using client_id.
     """
     try:
-        db = await get_database()  # Ensure the database is properly fetched
+        db = await get_database()
         user = await db["users"].find_one({"client_id": client_id})
 
         if user:
