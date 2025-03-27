@@ -3,22 +3,32 @@ from bson import ObjectId
 from datetime import datetime
 import logging
 import asyncio
-from app.database import database
+from app.database import get_database  # Import the get_database function
+
 from app.models.candidate_answers import CandidateAnswer, CandidateAnswerDB
 
 router = APIRouter(prefix="/candidate_answers", tags=["Candidate Answers"])
 
-answers_collection = database.get_collection("candidate_answers")
+
+async def get_answers_collection():
+    db = await get_database()  # Ensure the database is connected
+    return db.get_collection("candidate_answers")
+
 
 # ✅ Ensure index for fast lookups
 
 
 async def create_indexes():
+    answers_collection = await get_answers_collection()  # Get the collection
+# Get the collection
     await answers_collection.create_index(
+
         [("candidate_id", 1), ("question_id", 1)], unique=True
     )
 
 # Call the function to create indexes
+
+
 asyncio.create_task(create_indexes())
 
 # Logger setup
@@ -28,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 @router.post("/", response_model=CandidateAnswerDB)
 async def store_answer(answer: CandidateAnswer):
+    answers_collection = await get_answers_collection()  # Get the collection here
     """
     Stores a candidate's answer in MongoDB.
     Prevents duplicate answers for the same question.

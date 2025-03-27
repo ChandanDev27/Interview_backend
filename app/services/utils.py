@@ -5,12 +5,12 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 class WeakPasswordError(Exception):
-    """Custom exception for weak passwords."""
+    # Custom exception for weak passwords.
     pass
 
 
 def is_password_strong(password: str) -> bool:
-    """Check if password meets security requirements."""
+    # Check if password meets security requirements.
     return (
         len(password) >= 8 and
         bool(re.search(r"\d", password)) and           # At least one digit

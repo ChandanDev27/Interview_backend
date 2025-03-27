@@ -1,16 +1,14 @@
 from motor.motor_asyncio import AsyncIOMotorClient
 from dotenv import load_dotenv
-from app.config import logger, settings
+from app.config import logger
+import os
 
 load_dotenv()
 
 # Load MongoDB configurations
-MONGO_URI = settings.MONGO_URI
-DB_NAME = settings.MONGO_DB_NAME
-
-# MongoDB Client
+MONGO_URI = os.getenv("MONGO_URI")
 client = AsyncIOMotorClient(MONGO_URI)
-database = client[DB_NAME]  # This is your MongoDB database instance
+DB_NAME = "ai_interview"
 
 # MongoDB settings
 MONGODB_SETTINGS = {
@@ -51,6 +49,9 @@ class MongoDBManager:
 
 # Initialize MongoDB Manager
 mongodb_manager = MongoDBManager(MONGO_URI, DB_NAME, MONGODB_SETTINGS)
+
+# Define the database instance
+database = mongodb_manager.db
 
 
 async def get_database():

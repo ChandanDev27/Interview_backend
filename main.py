@@ -34,7 +34,7 @@ async def shutdown_event():
 # Include Routers
 app.include_router(auth.router, prefix="/auth")
 app.include_router(user.router)
-app.include_router(interview.router, prefix="/api")
+app.include_router(interview.router)
 app.include_router(websocket_router, prefix="/api")
 app.include_router(facial_analysis.router)
 app.include_router(speech_analysis.router)
