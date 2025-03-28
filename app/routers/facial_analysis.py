@@ -3,7 +3,7 @@ import shutil
 import tempfile
 import os
 import logging
-from app.services.ai.ai_analysis import analyze_facial_expression
+from app.services.ai.facial_analysis import analyze_facial_expression
 
 router = APIRouter(prefix="/api", tags=["Facial Analysis"])
 

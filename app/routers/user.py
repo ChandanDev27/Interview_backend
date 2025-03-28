@@ -3,7 +3,6 @@ import asyncio
 import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel, EmailStr
 from datetime import timedelta
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -11,16 +10,13 @@ from ..services.email import send_otp_email
 from ..services.auth import authenticate_user, create_access_token
 from ..services.utils import get_password_hash
 from ..database import get_database
+from ..schemas.auth import OTPRequest, ForgotPasswordRequest, ResetPasswordRequest
 from ..schemas.user import UserCreate, UserResponse, LoginRequest
 from ..schemas.token import TokenResponse
 from app.config import settings
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 limiter = Limiter(key_func=get_remote_address)
-
-
-class OTPRequest(BaseModel):
-    email: EmailStr
 
 
 otp_store = {}
@@ -124,10 +120,6 @@ async def verify_otp(request: OTPRequest):
     return {"message": "OTP verified successfully"}
 
 
-class ForgotPasswordRequest(BaseModel):
-    email: EmailStr
-
-
 @router.post("/forgot-password")
 async def forgot_password(request: ForgotPasswordRequest):
     db = await get_database()
@@ -145,12 +137,6 @@ async def forgot_password(request: ForgotPasswordRequest):
 
     asyncio.create_task(send_otp_email(request.email, reset_otp))
     return {"message": "OTP sent for password reset"}
-
-
-class ResetPasswordRequest(BaseModel):
-    email: EmailStr
-    otp: str
-    new_password: str
 
 
 @router.post("/reset-password")

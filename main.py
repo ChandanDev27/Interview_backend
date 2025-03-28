@@ -9,6 +9,8 @@ from app.routers import (
 from app.routers.websocket import router as websocket_router
 from app.schemas.user import User
 from app.config import settings
+from slowapi.errors import RateLimitExceeded
+from starlette.responses import JSONResponse
 
 app = FastAPI()
 
@@ -39,6 +41,14 @@ app.include_router(websocket_router, prefix="/api")
 app.include_router(facial_analysis.router)
 app.include_router(speech_analysis.router)
 app.include_router(interview_question.router, prefix="/questions")
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request, exc):
+    return JSONResponse(
+        status_code=429,
+        content={"message": "Too many requests! Please try again later."}
+    )
 
 
 # Convert MongoDB document to dictionary

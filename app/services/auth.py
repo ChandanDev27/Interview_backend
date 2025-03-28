@@ -1,10 +1,10 @@
+import bcrypt
 from datetime import datetime, timedelta
 from jose import JWTError, jwt, ExpiredSignatureError
 from fastapi import HTTPException, status, Depends
 from fastapi.security import OAuth2PasswordBearer
 import logging
 import re
-from passlib.context import CryptContext
 from app.config import settings
 from app.database import get_database
 
@@ -14,9 +14,6 @@ ALGORITHM = settings.ALGORITHM
 
 # Initialize logger
 logger = logging.getLogger(__name__)
-
-# Password hashing setup
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # OAuth2 token authentication
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
@@ -28,6 +25,7 @@ DEFAULT_EXPIRY = timedelta(hours=1)
 async def get_user(client_id: str):
     """
     Fetch user details from the database using client_id.
+    Returns a dictionary with user details if found, else None.
     """
     try:
         db = await get_database()
@@ -40,15 +38,22 @@ async def get_user(client_id: str):
                 "role": user["role"]
             }
 
-        logger.warning(f"User  not found: {client_id}")
+        logger.warning(f"⚠️ User not found: {client_id}")
         return None
 
     except Exception as e:
-        logger.error(f"Error fetching user from DB: {str(e)}")
+        logger.error(f"❌ Error fetching user from DB: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 def validate_password(password: str):
+    """
+    Validates password complexity:
+    - At least 8 characters long
+    - At least 1 uppercase letter
+    - At least 1 digit
+    - At least 1 special character
+    """
     try:
         if len(password) < 8:
             raise ValueError("Password must be at least 8 characters long")
@@ -62,25 +67,48 @@ def validate_password(password: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+def hash_password(password: str) -> str:
+    """Hashes the password using bcrypt."""
+    salt = bcrypt.gensalt()
+    hashed_password = bcrypt.hashpw(password.encode('utf-8'), salt)
+    return hashed_password.decode('utf-8')
+
+
+def verify_password(password: str, hashed_password: str) -> bool:
+    """Verifies the password against the hashed password."""
+    return bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8'))
+
+
 async def authenticate_user(email: str, password: str):
-    db = await get_database()  # Connect to the database
-    user = await db["users"].find_one({"email": email.lower()})  # Find user by email
+    """
+    Authenticates the user by checking email and password.
+    Returns the user document if authenticated, else None.
+    """
+    try:
+        db = await get_database()
+        user = await db["users"].find_one({"email": email.lower()})
 
-    if not user:
-        print(f"❌ User not found for email: {email}")
-        return None  # User not found
+        if not user:
+            logger.warning(f"⚠️ User not found: {email}")
+            return None
 
-    print(f"🔍 Found user: {user['email']} - Checking password...")
-    if not verify_password(password, user["client_secret"]):  # Check password
-        print("❌ Password does not match!")
-        return None  # Password mismatch
+        if not verify_password(password, user["client_secret"]):
+            logger.warning("❌ Password does not match!")
+            return None
 
-    print("✅ User authenticated successfully")
-    return user  # User authenticated successfully
+        logger.info("✅ User authenticated successfully")
+        return user
+
+    except Exception as e:
+        logger.error(f"❌ Error in authentication: {str(e)}")
+        return None
 
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
-    # Extract and validate the user from the JWT token.
+    """
+    Decodes JWT token and fetches the current user.
+    Raises an error if the token is invalid or expired.
+    """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -88,16 +116,14 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     )
 
     try:
-        logger.debug(f"Decoding token: {token}")
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         client_id: str = payload.get("sub")
 
         if client_id is None:
-            logger.error("Client ID missing in token")
             raise credentials_exception
 
     except ExpiredSignatureError:
-        logger.error("Token has expired")
+        logger.error("❌ Token has expired")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has expired",
@@ -105,14 +131,11 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         )
 
     except JWTError:
-        logger.error("Invalid JWT token")
+        logger.error("❌ Invalid JWT token")
         raise credentials_exception
-
-    logger.info(f"Token decoded successfully for client_id: {client_id}")
 
     user = await get_user(client_id)
     if user is None:
-        logger.warning(f"User  not found for token client_id: {client_id}")
         raise credentials_exception
 
     return user
@@ -120,7 +143,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 
 def get_current_user_role(current_user: dict = Depends(get_current_user)):
     """
-    Extract the user role from the current authenticated user.
+    Extracts the user role from the current authenticated user.
     """
     return current_user["role"]
 
@@ -140,10 +163,6 @@ def require_role(required_role: str):
     return role_dependency
 
 
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
-
-
 def create_access_token(data: dict, expires_delta: timedelta = DEFAULT_EXPIRY):
     """
     Generate a JWT access token with an expiration time.
@@ -154,10 +173,9 @@ def create_access_token(data: dict, expires_delta: timedelta = DEFAULT_EXPIRY):
         to_encode.update({"exp": expire})
 
         token = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-        logger.info("Access token generated successfully")
-
+        logger.info("✅ Access token generated successfully")
         return token
 
     except Exception as e:
-        logger.error(f"Error generating access token: {str(e)}")
+        logger.error(f"❌ Error generating access token: {str(e)}")
         raise HTTPException(status_code=500, detail="Token generation error")
