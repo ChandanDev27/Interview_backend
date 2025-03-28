@@ -92,7 +92,7 @@ async def authenticate_user(email: str, password: str):
             logger.warning(f"⚠️ User not found: {email}")
             return None
 
-        if not verify_password(password, user["client_secret"]):
+        if not verify_password(password, user["password"]):
             logger.warning("❌ Password does not match!")
             return None
 

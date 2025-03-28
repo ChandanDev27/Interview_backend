@@ -10,8 +10,8 @@ class User(BaseModel):
 
 class UserCreate(BaseModel):
     email: EmailStr
-    role: str
     password: str
+    role: str
 
 
 class UserResponse(BaseModel):
