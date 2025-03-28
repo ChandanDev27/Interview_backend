@@ -1,5 +1,4 @@
 import uuid
-import secrets
 import random
 import asyncio
 import datetime
@@ -23,21 +22,6 @@ limiter = Limiter(key_func=get_remote_address)
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
 
-@router.post("/token", response_model=TokenResponse)
-@limiter.limit("5/minute")  # Limit login attempts to prevent brute force attacks
-async def login_for_access_token(request: Request, login_data: LoginRequest):
-    print(f"🔍 Attempting login for: {login_data.email}")
-    user = await authenticate_user(login_data.email, login_data.password)
-
-    if not user:
-        print("❌ Invalid credentials")
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-
-    # Generate JWT token
-    access_token = create_access_token(data={"sub": user["client_id"], "role": user["role"]})
-    return {"access_token": access_token, "token_type": "bearer"}
-
-
 @router.post("/register", response_model=UserResponse)
 async def register(request: Request, user: UserCreate):
     db = await get_database()
@@ -49,16 +33,15 @@ async def register(request: Request, user: UserCreate):
 
     # Generate unique client ID and secure password
     client_id = str(uuid.uuid4())
-    client_secret = secrets.token_hex(16)  # Secure 32-character hex string
-    hashed_password = get_password_hash(client_secret)  # Use proper hashing function
+    hashed_password = get_password_hash(user.password)  # Use proper hashing function
     otp = str(random.randint(100000, 999999))
 
     # Create new user document
     new_user = {
         "client_id": client_id,
-        "client_secret": hashed_password,
-        "role": user.role,
         "email": user.email.lower(),
+        "password": hashed_password,
+        "role": user.role,
         "otp": otp,
         "is_verified": False,
         "otp_expires_at": datetime.datetime.utcnow() + datetime.timedelta(minutes=5)  # OTP expires in 5 minutes
@@ -152,7 +135,22 @@ async def reset_password(request: Request, body: ResetPasswordRequest):
     # Update password and remove OTP fields
     await db["users"].update_one(
         {"email": body.email},
-        {"$set": {"client_secret": hashed_password}, "$unset": {"reset_otp": "", "reset_otp_expires_at": ""}}
+        {"$set": {"password": hashed_password}, "$unset": {"reset_otp": "", "reset_otp_expires_at": ""}}
     )
 
     return {"message": "Password reset successful"}
+
+
+@router.post("/token", response_model=TokenResponse)
+@limiter.limit("5/minute")  # Limit login attempts to prevent brute force attacks
+async def login_for_access_token(request: Request, login_data: LoginRequest):
+    print(f"🔍 Attempting login for: {login_data.email}")
+    user = await authenticate_user(login_data.email, login_data.password)
+
+    if not user:
+        print("❌ Invalid credentials")
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    # Generate JWT token
+    access_token = create_access_token(data={"sub": user["client_id"], "role": user["role"]})
+    return {"access_token": access_token, "token_type": "bearer"}

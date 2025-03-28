@@ -8,9 +8,6 @@ load_dotenv()
 
 
 class Settings:
-    # Application Configuration Settings
-
-    # Security Settings
     SECRET_KEY: str = os.getenv("SECRET_KEY")
     if not SECRET_KEY or SECRET_KEY == "default_secret_key_for_development_only":
         raise ValueError("❌ SECRET_KEY is missing or using an insecure default!")
