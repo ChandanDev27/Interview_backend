@@ -7,7 +7,6 @@ import re
 from passlib.context import CryptContext
 from app.config import settings
 from app.database import get_database
-from app.services.utils import verify_password
 
 # Load settings
 SECRET_KEY = settings.SECRET_KEY
@@ -41,7 +40,7 @@ async def get_user(client_id: str):
                 "role": user["role"]
             }
 
-        logger.warning(f"User not found: {client_id}")
+        logger.warning(f"User  not found: {client_id}")
         return None
 
     except Exception as e:
@@ -64,21 +63,20 @@ def validate_password(password: str):
 
 
 async def authenticate_user(email: str, password: str):
-    db = await get_database()
-    user = await db["users"].find_one({"email": email.lower()})
+    db = await get_database()  # Connect to the database
+    user = await db["users"].find_one({"email": email.lower()})  # Find user by email
 
     if not user:
         print(f"❌ User not found for email: {email}")
-        return None
+        return None  # User not found
 
     print(f"🔍 Found user: {user['email']} - Checking password...")
-
-    if not verify_password(password, user["client_secret"]):
+    if not verify_password(password, user["client_secret"]):  # Check password
         print("❌ Password does not match!")
-        return None
+        return None  # Password mismatch
 
-    print(f"✅ Authentication successful for {user['email']}")
-    return user
+    print("✅ User authenticated successfully")
+    return user  # User authenticated successfully
 
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
@@ -114,7 +112,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 
     user = await get_user(client_id)
     if user is None:
-        logger.warning(f"User not found for token client_id: {client_id}")
+        logger.warning(f"User  not found for token client_id: {client_id}")
         raise credentials_exception
 
     return user
@@ -140,6 +138,10 @@ def require_role(required_role: str):
             )
         return user_role
     return role_dependency
+
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
 
 
 def create_access_token(data: dict, expires_delta: timedelta = DEFAULT_EXPIRY):

@@ -31,15 +31,15 @@ otp_store = {}
 @router.post("/token", response_model=TokenResponse)
 @limiter.limit("5/minute")
 async def login_for_access_token(request: Request, login_data: LoginRequest):
+    print(f"🔍 Attempting login for: {login_data.email}")
     user = await authenticate_user(login_data.email, login_data.password)
 
     if not user:
+        print("❌ Invalid credentials")
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    access_token = create_access_token(
-        data={"sub": user["client_id"], "role": user["role"]}
-    )
-
+    # If user is found and password matches, generate token
+    access_token = create_access_token(data={"sub": user["client_id"], "role": user["role"]})
     return {"access_token": access_token, "token_type": "bearer"}
 
 
