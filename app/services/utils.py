@@ -20,9 +20,10 @@ def is_password_strong(password: str) -> bool:
     )
 
 
-def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
-
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
+def verify_password(plain_password, hashed_password):
+    print(f"🔍 Comparing: {plain_password} with {hashed_password}")
     return pwd_context.verify(plain_password, hashed_password)
+
+
+def get_password_hash(password: str):
+    return pwd_context.hash(password)

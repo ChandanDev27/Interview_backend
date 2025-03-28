@@ -9,9 +9,9 @@ class User(BaseModel):
 
 
 class UserCreate(BaseModel):
-    client_id: str = Field(..., description="Unique client ID")
-    client_secret: str = Field(..., description="Client secret key")
-    role: str = Field(..., description="User role (admin/candidate)")
+    email: EmailStr
+    role: str
+    password: str
 
 
 class UserResponse(BaseModel):
@@ -43,3 +43,18 @@ class LoginRequest(BaseModel):
                 "password": "securepassword"
             }
         }
+
+
+class VerifyOTPRequest(BaseModel):
+    email: EmailStr
+    otp: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    otp: str
+    new_password: str

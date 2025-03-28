@@ -1,17 +1,17 @@
+import uuid
+import secrets
 import random
 import asyncio
 import datetime
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, EmailStr
-from datetime import timedelta
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from ..services.email import send_otp_email
 from ..services.auth import authenticate_user, create_access_token
 from ..services.utils import get_password_hash
 from ..database import get_database
-from ..schemas.user import UserCreate, UserResponse, LoginRequest
+from ..schemas.user import UserCreate, UserResponse, LoginRequest, VerifyOTPRequest, ForgotPasswordRequest, ResetPasswordRequest
 from ..schemas.token import TokenResponse
 from app.config import settings
 
@@ -30,37 +30,37 @@ otp_store = {}
 
 @router.post("/token", response_model=TokenResponse)
 @limiter.limit("5/minute")
-async def login_for_access_token(
-    request: Request,  # ✅ Ensuring `request` is present for SlowAPI
-    form_data: OAuth2PasswordRequestForm = Depends()
-):
-    user = await authenticate_user(form_data.username, form_data.password)
+async def login_for_access_token(request: Request, login_data: LoginRequest):
+    user = await authenticate_user(login_data.email, login_data.password)
 
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user["client_id"], "role": user["role"]},
-        expires_delta=access_token_expires
+        data={"sub": user["client_id"], "role": user["role"]}
     )
 
-    return TokenResponse(access_token=access_token, token_type="bearer")
+    return {"access_token": access_token, "token_type": "bearer"}
 
 
 @router.post("/register", response_model=UserResponse)
 async def register(request: Request, user: UserCreate):
     db = await get_database()
 
+    # Check if email already exists
     existing_user = await db["users"].find_one({"email": user.email.lower()})
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    hashed_password = get_password_hash(user.client_secret)
+    # 🔹 Auto-generate `client_id` and `client_secret`
+    client_id = str(uuid.uuid4())  # Unique identifier
+    client_secret = secrets.token_hex(16)  # Secure 32-character hex string
+    hashed_password = get_password_hash(client_secret)
     otp = str(random.randint(100000, 999999))
 
+    # Create new user document
     new_user = {
-        "client_id": user.client_id,
+        "client_id": client_id,
         "client_secret": hashed_password,
         "role": user.role,
         "email": user.email.lower(),
@@ -68,19 +68,34 @@ async def register(request: Request, user: UserCreate):
         "is_verified": False
     }
 
-    await db["users"].insert_one(new_user)
+    # Insert into MongoDB
+    result = await db["users"].insert_one(new_user)
+
+    # Send OTP email asynchronously
     asyncio.create_task(send_otp_email(user.email, otp))
-    return UserResponse(client_id=user.client_id, role=user.role)
+
+    return UserResponse(
+        id=str(result.inserted_id),  # Convert ObjectId to string
+        client_id=client_id,
+        email=user.email,
+        role=user.role
+    )
 
 
 @router.post("/login", response_model=TokenResponse)
 async def login(request: Request, body: LoginRequest):
+    print(f"🔍 Login attempt for email: {body.email}")
+
     user = await authenticate_user(body.email, body.password)
 
     if not user:
+        print("❌ Authentication failed: Invalid email or password")
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
+    print(f"✅ User authenticated: {user['email']} (Role: {user['role']})")
+
     access_token = create_access_token({"sub": user["client_id"], "role": user["role"]})
+    print(f"🔑 Access token generated for {user['email']}")
     return TokenResponse(access_token=access_token, token_type="bearer")
 
 
@@ -105,7 +120,7 @@ async def send_otp(request: Request, body: OTPRequest):
 
 
 @router.post("/verify-otp")
-async def verify_otp(request: Request, body: OTPRequest):
+async def verify_otp(request: Request, body: VerifyOTPRequest):
     db = await get_database()
     email = body.email.strip().lower()
 
@@ -113,18 +128,16 @@ async def verify_otp(request: Request, body: OTPRequest):
     if not user or user.get("otp") is None:
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
+    # Check OTP expiration safely
+    otp_expiry = user.get("otp_expires_at", datetime.datetime.utcnow())
+    if datetime.datetime.utcnow() > otp_expiry:
+        raise HTTPException(status_code=400, detail="OTP expired")
+
     if user["otp"] != body.otp:
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
-    if datetime.datetime.utcnow() > user.get("otp_expires_at", datetime.datetime.utcnow()):
-        raise HTTPException(status_code=400, detail="OTP expired")
-
     await db["users"].update_one({"email": email}, {"$unset": {"otp": "", "otp_expires_at": ""}})
     return {"message": "OTP verified successfully"}
-
-
-class ForgotPasswordRequest(BaseModel):
-    email: EmailStr
 
 
 @router.post("/forgot-password")
@@ -139,17 +152,14 @@ async def forgot_password(request: Request, body: ForgotPasswordRequest):
 
     await db["users"].update_one(
         {"email": body.email},
-        {"$set": {"reset_otp": reset_otp}}
+        {"$set": {
+            "reset_otp": reset_otp,
+            "reset_otp_expires_at": datetime.datetime.utcnow() + datetime.timedelta(minutes=5)
+        }}
     )
 
     asyncio.create_task(send_otp_email(body.email, reset_otp))
     return {"message": "OTP sent for password reset"}
-
-
-class ResetPasswordRequest(BaseModel):
-    email: EmailStr
-    otp: str
-    new_password: str
 
 
 @router.post("/reset-password")
@@ -160,6 +170,11 @@ async def reset_password(request: Request, body: ResetPasswordRequest):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    # Check OTP expiration
+    reset_otp_expiry = user.get("reset_otp_expires_at", datetime.datetime.utcnow())
+    if datetime.datetime.utcnow() > reset_otp_expiry:
+        raise HTTPException(status_code=400, detail="OTP expired")
+
     if user.get("reset_otp") != body.otp:
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
@@ -167,7 +182,7 @@ async def reset_password(request: Request, body: ResetPasswordRequest):
 
     await db["users"].update_one(
         {"email": body.email},
-        {"$set": {"client_secret": hashed_password}, "$unset": {"reset_otp": ""}}
+        {"$set": {"client_secret": hashed_password}, "$unset": {"reset_otp": "", "reset_otp_expires_at": ""}}
     )
 
     return {"message": "Password reset successful"}

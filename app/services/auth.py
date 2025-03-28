@@ -63,27 +63,26 @@ def validate_password(password: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-async def authenticate_user(username: str, password: str):
+async def authenticate_user(email: str, password: str):
     db = await get_database()
-    user = await db["users"].find_one({"client_id": username})
+    user = await db["users"].find_one({"email": email.lower()})
 
     if not user:
-        print("❌ User not found")
-        return False
+        print(f"❌ User not found for email: {email}")
+        return None
 
-    print("✅ User found:", user["client_id"])
+    print(f"🔍 Found user: {user['email']} - Checking password...")
 
     if not verify_password(password, user["client_secret"]):
-        print("❌ Password mismatch")
-        return False
+        print("❌ Password does not match!")
+        return None
 
+    print(f"✅ Authentication successful for {user['email']}")
     return user
 
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
-    """
-    Extract and validate the user from the JWT token.
-    """
+    # Extract and validate the user from the JWT token.
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
