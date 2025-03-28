@@ -11,11 +11,14 @@ from ..services.email import send_otp_email
 from ..services.auth import authenticate_user, create_access_token
 from ..services.utils import get_password_hash
 from ..database import get_database
-from ..schemas.user import UserCreate, UserResponse, TokenResponse, LoginRequest
+from ..schemas.user import UserCreate, UserResponse, LoginRequest
+from ..schemas.token import TokenResponse
 from app.config import settings
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 limiter = Limiter(key_func=get_remote_address)
+
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
 
 class OTPRequest(BaseModel):
@@ -24,13 +27,11 @@ class OTPRequest(BaseModel):
 
 otp_store = {}
 
-ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
-
 
 @router.post("/token", response_model=TokenResponse)
 @limiter.limit("5/minute")
 async def login_for_access_token(
-    request: Request,
+    request: Request,  # ✅ Ensuring `request` is present for SlowAPI
     form_data: OAuth2PasswordRequestForm = Depends()
 ):
     user = await authenticate_user(form_data.username, form_data.password)
@@ -44,11 +45,11 @@ async def login_for_access_token(
         expires_delta=access_token_expires
     )
 
-    return {"access_token": access_token, "token_type": "bearer"}
+    return TokenResponse(access_token=access_token, token_type="bearer")
 
 
 @router.post("/register", response_model=UserResponse)
-async def register(user: UserCreate):
+async def register(request: Request, user: UserCreate):
     db = await get_database()
 
     existing_user = await db["users"].find_one({"email": user.email.lower()})
@@ -56,7 +57,6 @@ async def register(user: UserCreate):
         raise HTTPException(status_code=400, detail="Email already registered")
 
     hashed_password = get_password_hash(user.client_secret)
-
     otp = str(random.randint(100000, 999999))
 
     new_user = {
@@ -74,20 +74,20 @@ async def register(user: UserCreate):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(request: LoginRequest):
-    user = await authenticate_user(request.email, request.password)
+async def login(request: Request, body: LoginRequest):
+    user = await authenticate_user(body.email, body.password)
 
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     access_token = create_access_token({"sub": user["client_id"], "role": user["role"]})
-    return {"access_token": access_token, "token_type": "bearer"}
+    return TokenResponse(access_token=access_token, token_type="bearer")
 
 
 @router.post("/send-otp")
-async def send_otp(request: OTPRequest):
+async def send_otp(request: Request, body: OTPRequest):
     db = await get_database()
-    email = request.email.strip().lower()
+    email = body.email.strip().lower()
 
     user = await db["users"].find_one({"email": email})
     if not user:
@@ -105,15 +105,15 @@ async def send_otp(request: OTPRequest):
 
 
 @router.post("/verify-otp")
-async def verify_otp(request: OTPRequest):
+async def verify_otp(request: Request, body: OTPRequest):
     db = await get_database()
-    email = request.email.strip().lower()
+    email = body.email.strip().lower()
 
     user = await db["users"].find_one({"email": email})
     if not user or user.get("otp") is None:
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
-    if user["otp"] != request.otp:
+    if user["otp"] != body.otp:
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
     if datetime.datetime.utcnow() > user.get("otp_expires_at", datetime.datetime.utcnow()):
@@ -128,9 +128,9 @@ class ForgotPasswordRequest(BaseModel):
 
 
 @router.post("/forgot-password")
-async def forgot_password(request: ForgotPasswordRequest):
+async def forgot_password(request: Request, body: ForgotPasswordRequest):
     db = await get_database()
-    user = await db["users"].find_one({"email": request.email})
+    user = await db["users"].find_one({"email": body.email})
 
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -138,11 +138,11 @@ async def forgot_password(request: ForgotPasswordRequest):
     reset_otp = str(random.randint(100000, 999999))
 
     await db["users"].update_one(
-        {"email": request.email},
+        {"email": body.email},
         {"$set": {"reset_otp": reset_otp}}
     )
 
-    asyncio.create_task(send_otp_email(request.email, reset_otp))
+    asyncio.create_task(send_otp_email(body.email, reset_otp))
     return {"message": "OTP sent for password reset"}
 
 
@@ -153,20 +153,20 @@ class ResetPasswordRequest(BaseModel):
 
 
 @router.post("/reset-password")
-async def reset_password(request: ResetPasswordRequest):
+async def reset_password(request: Request, body: ResetPasswordRequest):
     db = await get_database()
-    user = await db["users"].find_one({"email": request.email})
+    user = await db["users"].find_one({"email": body.email})
 
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if user.get("reset_otp") != request.otp:
+    if user.get("reset_otp") != body.otp:
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
-    hashed_password = get_password_hash(request.new_password)
+    hashed_password = get_password_hash(body.new_password)
 
     await db["users"].update_one(
-        {"email": request.email},
+        {"email": body.email},
         {"$set": {"client_secret": hashed_password}, "$unset": {"reset_otp": ""}}
     )
 

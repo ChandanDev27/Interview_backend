@@ -11,7 +11,8 @@ from ..services.email import send_otp_email
 from ..services.auth import authenticate_user, create_access_token
 from ..services.utils import get_password_hash
 from ..database import get_database
-from ..schemas.user import UserCreate, UserResponse, TokenResponse, LoginRequest
+from ..schemas.user import UserCreate, UserResponse, LoginRequest
+from ..schemas.token import TokenResponse
 from app.config import settings
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
