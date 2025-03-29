@@ -1,13 +1,16 @@
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
 from pydantic import EmailStr
 from dotenv import load_dotenv
+import os
 
+# Load environment variables from .env file
 load_dotenv()
 
+# Configure FastAPI Mail
 conf = ConnectionConfig(
-    MAIL_USERNAME="your-email@example.com",
-    MAIL_PASSWORD="your-password",
-    MAIL_FROM="your-email@example.com",
+    MAIL_USERNAME=os.getenv("SMTP_USERNAME"),  # Use the environment variable
+    MAIL_PASSWORD=os.getenv("SMTP_PASSWORD"),  # Use the environment variable
+    MAIL_FROM=os.getenv("EMAIL_FROM"),  # Use the environment variable
     MAIL_PORT=587,
     MAIL_SERVER="smtp.gmail.com",
     MAIL_STARTTLS=True,
@@ -28,4 +31,7 @@ async def send_otp_email(email: EmailStr, otp: str):
     )
 
     fm = FastMail(conf)
-    await fm.send_message(message)
+    try:
+        await fm.send_message(message)
+    except Exception as e:
+        print(f"Error sending email: {e}")

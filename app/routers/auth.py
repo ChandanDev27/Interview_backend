@@ -18,6 +18,7 @@ from app.config import settings
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 limiter = Limiter(key_func=get_remote_address)
 
+otp_store = {}
 # Token expiration time from config
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
@@ -59,6 +60,17 @@ async def register(request: Request, user: UserCreate):
         email=user.email,
         role=user.role
     )
+
+
+@router.post("/login", response_model=TokenResponse)
+async def login(request: LoginRequest):
+    user = await authenticate_user(request.email, request.password)
+
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    access_token = create_access_token({"sub": user["client_id"], "role": user["role"]})
+    return {"access_token": access_token, "token_type": "bearer"}
 
 
 @router.post("/verify-otp")
