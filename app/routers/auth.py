@@ -6,11 +6,11 @@ from fastapi import APIRouter, HTTPException, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from ..services.email import send_otp_email
-from ..services.auth import authenticate_user, create_access_token, verify_otp_service, generate_otp
+from ..services.auth import generate_otp, verify_otp_service, authenticate_user, create_access_token
 from ..services.utils import get_password_hash  # Corrected import for password hashing
 from ..database import get_database
 from ..schemas.auth import ForgotPasswordRequest, ResetPasswordRequest, VerifyOtpRequest
-from ..schemas.user import UserCreate, UserResponse, LoginRequest
+from ..schemas.user import UserCreate, UserResponse, LoginRequest, OTPRequest, OTPResponse
 from ..schemas.token import TokenResponse
 from app.config import settings
 
@@ -155,3 +155,10 @@ async def login_for_access_token(request: Request, login_data: LoginRequest):
     # Generate JWT token
     access_token = create_access_token(data={"sub": user["client_id"], "role": user["role"]})
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.post("/send-otp", response_model=OTPResponse)
+async def send_otp(request: OTPRequest):
+    otp = generate_otp()  # Utility function to generate OTP
+    await send_otp_email(request.email, otp)
+    return OTPResponse(message="OTP sent successfully")

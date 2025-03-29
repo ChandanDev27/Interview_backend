@@ -43,3 +43,13 @@ class LoginRequest(BaseModel):
                 "password": "securepassword"
             }
         }
+
+
+# Request schema for OTP
+class OTPRequest(BaseModel):
+    email: EmailStr
+
+
+# Response schema for OTP sending
+class OTPResponse(BaseModel):
+    message: str

@@ -27,7 +27,7 @@ async def send_otp_email(email: EmailStr, otp: str):
     #  it store the otp and expiration time in the  otp_db (in database)
     otp_db[email] = {
         "otp": str(otp),
-        "expires_at": datetime.utcnow() + timedelta(minutes=10)  # OTP expires in 10 minutes
+        "expires_at": datetime.utcnow() + timedelta(minutes=5)  # OTP expires in 10 minutes
     }
 
     message = MessageSchema(
