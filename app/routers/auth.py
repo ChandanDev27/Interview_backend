@@ -1,12 +1,12 @@
 import uuid
 import random
 import asyncio
-import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from ..services.email import send_otp_email
-from ..services.auth import authenticate_user, create_access_token
+from ..services.auth import authenticate_user, create_access_token, verify_otp_service, generate_otp
 from ..services.utils import get_password_hash  # Corrected import for password hashing
 from ..database import get_database
 from ..schemas.auth import ForgotPasswordRequest, ResetPasswordRequest, VerifyOtpRequest
@@ -35,7 +35,7 @@ async def register(request: Request, user: UserCreate):
     # Generate unique client ID and secure password
     client_id = str(uuid.uuid4())
     hashed_password = get_password_hash(user.password)  # Use proper hashing function
-    otp = str(random.randint(100000, 999999))
+    otp = await generate_otp(user.email)
 
     # Create new user document
     new_user = {
@@ -45,7 +45,7 @@ async def register(request: Request, user: UserCreate):
         "role": user.role,
         "otp": otp,
         "is_verified": False,
-        "otp_expires_at": datetime.datetime.utcnow() + datetime.timedelta(minutes=5)  # OTP expires in 5 minutes
+        "otp_expires_at": datetime.utcnow() + timedelta(minutes=5)  # OTP expires in 5 minutes
     }
 
     # Insert user into MongoDB
@@ -62,6 +62,12 @@ async def register(request: Request, user: UserCreate):
     )
 
 
+@router.post("/generate-otp")
+async def generate_otp_route(email: str):
+    otp = await generate_otp(email)
+    return {"otp": otp}
+
+
 @router.post("/login", response_model=TokenResponse)
 async def login(request: LoginRequest):
     user = await authenticate_user(request.email, request.password)
@@ -75,25 +81,8 @@ async def login(request: LoginRequest):
 
 @router.post("/verify-otp")
 async def verify_otp(request: Request, body: VerifyOtpRequest):
-    db = await get_database()
-    email = body.email.strip().lower()
-
-    # Check if user exists and OTP is available
-    user = await db["users"].find_one({"email": email})
-    if not user or user.get("otp") is None:
-        raise HTTPException(status_code=400, detail="Invalid OTP")
-
-    # Check OTP expiration
-    otp_expiry = user.get("otp_expires_at", datetime.datetime.utcnow())
-    if datetime.datetime.utcnow() > otp_expiry:
-        raise HTTPException(status_code=400, detail="OTP expired")
-
-    if user["otp"] != body.otp:
-        raise HTTPException(status_code=400, detail="Invalid OTP")
-
-    # Mark user as verified and remove OTP from database
-    await db["users"].update_one({"email": email}, {"$set": {"is_verified": True}, "$unset": {"otp": "", "otp_expires_at": ""}})
-    return {"message": "OTP verified successfully"}
+    # Call the service to verify OTP
+    return await verify_otp_service(body.email, body.otp)
 
 
 @router.post("/forgot-password")

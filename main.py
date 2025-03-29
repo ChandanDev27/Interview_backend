@@ -8,7 +8,7 @@ from app.routers import (
 )
 from app.routers.websocket import router as websocket_router
 from app.schemas.user import User
-from app.config import settings
+from app.config import settings, logger
 from slowapi.errors import RateLimitExceeded
 from starlette.responses import JSONResponse
 
@@ -68,9 +68,9 @@ def serialize_user(user):
 async def store_user(user: User, db=Depends(get_database)):
     try:
         users_collection = db["users"]
-
         existing_user = await users_collection.find_one({"email": user.email})
         if existing_user:
+            logger.info(f"User {user.email} already exists.")
             return {
                 "message": "User already exists",
                 "user": serialize_user(existing_user),
@@ -87,16 +87,14 @@ async def store_user(user: User, db=Depends(get_database)):
         result = await users_collection.insert_one(new_user)
         new_user["_id"] = result.inserted_id
 
+        logger.info(f"New user {user.email} stored successfully.")
         return {
             "message": "User stored successfully",
             "user": serialize_user(new_user),
         }
-
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
+        logger.error(f"Error storing user: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # Get User API
