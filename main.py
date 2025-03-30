@@ -135,4 +135,4 @@ async def health_check(db=Depends(get_database)):
 # Root endpoint
 @app.get("/")
 async def root():
-    return {"message": "AI Interview API is running!"}
+    return {"message": "Interview Genie API is running!"}

@@ -34,38 +34,57 @@ async def register(request: Request, user: UserCreate):
 
     # Generate unique client ID and secure password
     client_id = str(uuid.uuid4())
-    hashed_password = get_password_hash(user.password)  # Use proper hashing function
-    otp = await generate_otp(user.email)
+    hashed_password = get_password_hash(user.password)
 
-    # Create new user document
+    # Generate OTP
+    otp_response = await generate_otp(user.email, user.Name)
+    print(f"🔍 OTP Response: {otp_response}")  # Debugging line
+
+    if "error" in otp_response:
+        raise HTTPException(status_code=400, detail=otp_response["error"])
+
+    otp = otp_response["otp"]
+    print(f"Generated OTP: {otp}")
+
+    # Create new user document (Ensure OTP is stored here)
     new_user = {
         "client_id": client_id,
+        "Name": user.Name,
         "email": user.email.lower(),
         "password": hashed_password,
         "role": user.role,
-        "otp": otp,
         "is_verified": False,
-        "otp_expires_at": datetime.utcnow() + timedelta(minutes=5)  # OTP expires in 5 minutes
+        "otp": otp,  # Store OTP in the database
+        "otp_expires_at": datetime.utcnow() + timedelta(minutes=5)
     }
 
     # Insert user into MongoDB
     result = await db["users"].insert_one(new_user)
 
-    # Send OTP asynchronously
-    asyncio.create_task(send_otp_email(user.email, otp))
+    email_response = await send_otp_email(user.email, user.Name, otp)
+
+    if email_response is False:
+        raise HTTPException(status_code=500, detail="Failed to send OTP")
 
     return UserResponse(
         id=str(result.inserted_id),
         client_id=client_id,
+        Name=user.Name,
         email=user.email,
         role=user.role
     )
 
 
 @router.post("/generate-otp")
-async def generate_otp_route(email: str):
-    otp = await generate_otp(email)
-    return {"otp": otp}
+async def generate_otp_route(email: str, user_name: str):
+    otp_response = await generate_otp(email, user_name)
+
+    print(f"🔍 OTP Response: {otp_response}")  # Debugging line
+
+    if "error" in otp_response:
+        raise HTTPException(status_code=400, detail=otp_response["error"])
+
+    return {"otp": otp_response["otp"]}
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -95,9 +114,11 @@ async def forgot_password(request: Request, body: ForgotPasswordRequest):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    user_name = user.get("Name", "User")
+
     # Generate a 6-digit OTP and set expiration time
     reset_otp = str(random.randint(100000, 999999))
-    reset_otp_expires_at = datetime.datetime.utcnow() + datetime.timedelta(minutes=5)
+    reset_otp_expires_at = datetime.utcnow() + timedelta(minutes=5)
 
     # Store OTP in the database with expiry
     await db["users"].update_one(
@@ -109,7 +130,7 @@ async def forgot_password(request: Request, body: ForgotPasswordRequest):
     )
 
     # Send OTP asynchronously
-    asyncio.create_task(send_otp_email(body.email, reset_otp))
+    asyncio.create_task(send_otp_email(body.email, user_name, reset_otp))
 
     return {"message": "OTP sent for password reset"}
 
@@ -123,8 +144,8 @@ async def reset_password(request: Request, body: ResetPasswordRequest):
         raise HTTPException(status_code=404, detail="User not found")
 
     # Check OTP expiration
-    reset_otp_expiry = user.get("reset_otp_expires_at", datetime.datetime.utcnow())
-    if datetime.datetime.utcnow() > reset_otp_expiry:
+    reset_otp_expiry = user.get("reset_otp_expires_at", datetime.utcnow())
+    if datetime.utcnow() > reset_otp_expiry:
         raise HTTPException(status_code=400, detail="OTP expired")
 
     if user.get("reset_otp") != body.otp:
@@ -157,8 +178,11 @@ async def login_for_access_token(request: Request, login_data: LoginRequest):
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.post("/send-otp", response_model=OTPResponse)
+@router.post("/send-otp/", response_model=OTPResponse)
 async def send_otp(request: OTPRequest):
-    otp = generate_otp()  # Utility function to generate OTP
-    await send_otp_email(request.email, otp)
-    return OTPResponse(message="OTP sent successfully")
+    response = await send_otp_email(request.email)
+
+    if "error" in response:
+        raise HTTPException(status_code=500, detail=response["error"])
+
+    return OTPResponse(message=response["message"])

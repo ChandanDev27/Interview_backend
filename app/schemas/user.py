@@ -9,6 +9,7 @@ class User(BaseModel):
 
 
 class UserCreate(BaseModel):
+    Name: str
     email: EmailStr
     password: str
     role: str
@@ -17,6 +18,7 @@ class UserCreate(BaseModel):
 class UserResponse(BaseModel):
     id: Optional[str] = None
     client_id: str
+    Name: str
     email: EmailStr
     role: str
 
@@ -26,6 +28,7 @@ class UserResponse(BaseModel):
             "example": {
                 "id": "605c72d9fc13ae7890000000",
                 "client_id": "12345",
+                "Name": "John Doe",
                 "email": "user@example.com",
                 "role": "candidate"
             }

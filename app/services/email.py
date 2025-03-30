@@ -20,14 +20,29 @@ conf = ConnectionConfig(
 
 
 # Async Email Sending Function
-async def send_otp_email(email: EmailStr, otp: str):
-    subject = "Your OTP Code for AI Interview App"
-    body = f"Your OTP code for Interview Genie is: {otp}. It is valid for 5 minutes."
+async def send_otp_email(email: EmailStr, user_name: str, otp: str):
+    subject = "Your OTP for Secure Access"
 
+    body = f"""\
+    Dear {user_name},
+
+    Your OTP is: {otp}.
+
+    This OTP is valid for 5 minutes and can only be used once.
+    Please do not share this code with anyone.
+
+    If you did not request this code, please contact our support
+    team immediately at {os.getenv("SUPPORT_EMAIL", "chandan18305@gmail.com")}.
+
+    Thank you for using {os.getenv("APP_NAME", "Your Company Name")}!
+
+    Best regards,
+    {os.getenv("APP_NAME", "Your Company Name")}
+    """
     #  it store the otp and expiration time in the  otp_db (in database)
     otp_db[email] = {
         "otp": str(otp),
-        "expires_at": datetime.utcnow() + timedelta(minutes=5)  # OTP expires in 10 minutes
+        "expires_at": datetime.utcnow() + timedelta(minutes=5)  # OTP expires in 5 minutes
     }
 
     message = MessageSchema(
@@ -41,5 +56,7 @@ async def send_otp_email(email: EmailStr, otp: str):
     try:
         await fm.send_message(message)
         print("OTP email sent successfully!")
+        return True
     except Exception as e:
         print(f"Error sending email: {e}")
+        return False
