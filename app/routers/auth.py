@@ -60,7 +60,7 @@ async def register(request: Request, user: UserCreate):
 
     # Insert user into MongoDB
     result = await db["users"].insert_one(new_user)
-
+    
     email_response = await send_otp_email(user.email, user.Name, otp)
 
     if email_response is False:
