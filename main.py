@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 from bson import ObjectId, errors
 from app.database import MongoDBManager, get_database
@@ -12,7 +13,24 @@ from app.config import settings, logger
 from slowapi.errors import RateLimitExceeded
 from starlette.responses import JSONResponse
 
-app = FastAPI()
+app = FastAPI(title="Interview Genie Backend", verion="1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include Routers
+app.include_router(auth.router, tags=["Authentication"])
+app.include_router(user.router)
+app.include_router(interview.router)
+app.include_router(websocket_router, prefix="/api")
+app.include_router(facial_analysis.router)
+app.include_router(speech_analysis.router)
+app.include_router(interview_question.router, prefix="/questions")
 
 # Initialize MongoDB Manager
 mongo_manager = MongoDBManager(
@@ -33,14 +51,10 @@ async def startup_event():
 async def shutdown_event():
     await mongo_manager.close()
 
-# Include Routers
-app.include_router(auth.router, tags=["Authentication"])
-app.include_router(user.router)
-app.include_router(interview.router)
-app.include_router(websocket_router, prefix="/api")
-app.include_router(facial_analysis.router)
-app.include_router(speech_analysis.router)
-app.include_router(interview_question.router, prefix="/questions")
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    return JSONResponse(status_code=500, content={"message": "An internal server error occurred"})
 
 
 @app.exception_handler(RateLimitExceeded)
