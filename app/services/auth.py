@@ -35,7 +35,8 @@ async def get_user(client_id: str):
         if user:
             return {
                 "client_id": str(user["client_id"]),
-                "client_secret": user["client_secret"],
+                "Name": user["Name"],
+                "email": user["email"],
                 "role": user["role"]
             }
 
