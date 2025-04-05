@@ -13,7 +13,7 @@ from app.config import settings, logger
 from slowapi.errors import RateLimitExceeded
 from starlette.responses import JSONResponse
 
-app = FastAPI(title="Interview Genie Backend", verion="1.0")
+app = FastAPI(title="Interview Genie Backend", version="1.0")
 
 app.add_middleware(
     CORSMiddleware,

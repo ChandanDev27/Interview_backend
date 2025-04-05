@@ -11,7 +11,7 @@ class OTPRequest(BaseModel):
     otp: str
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "email": "user@example.com",
                 "otp": "123456"
@@ -24,7 +24,7 @@ class VerifyOtpRequest(BaseModel):
     otp: str
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "email": "user@example.com",
                 "otp": "123456"

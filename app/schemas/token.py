@@ -7,7 +7,7 @@ class Token(BaseModel):
     token_type: str = Field(..., min_length=1, description="Type of token (usually 'bearer')")
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
                 "token_type": "bearer"
@@ -19,7 +19,7 @@ class TokenData(BaseModel):
     client_id: Optional[str] = Field(default=None, description="Client ID associated with the token")
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "client_id": "12345"
             }
@@ -31,7 +31,7 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
                 "token_type": "bearer"

@@ -24,7 +24,7 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
-        schema_extra = {
+        json_schema_extra ={
             "example": {
                 "id": "605c72d9fc13ae7890000000",
                 "client_id": "12345",
@@ -40,7 +40,7 @@ class LoginRequest(BaseModel):
     password: str = Field(..., description="User password")
 
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "email": "user@example.com",
                 "password": "securepassword"
