@@ -4,7 +4,7 @@ from datetime import datetime
 from bson import ObjectId, errors
 from app.database import MongoDBManager, get_database
 from app.routers import (
-    auth, user, interview, facial_analysis, feedback, websocket,
+    auth, user, interview, facial_analysis, feedback, websocket, health,
     speech_analysis, interview_question, ai_analysis, candidate_answers
 )
 from app.routers.websocket import router as websocket_router
@@ -38,6 +38,7 @@ app.include_router(interview_question.router, prefix="/questions")
 app.include_router(ai_analysis.router)
 app.include_router(candidate_answers.router)
 app.include_router(feedback.router)
+app.include_router(health.router)
 app.include_router(websocket.router, prefix="/api")
 app.mount("/media", StaticFiles(directory="media"), name="media")
 
@@ -146,18 +147,6 @@ async def get_user(user_id: str, db=Depends(get_database)):
         )
 
     return serialize_user(user)
-
-# MongoDB Health Check
-@app.get("/health")
-async def health_check(db=Depends(get_database)):
-    try:
-        await db.command("ping")
-        return {"status": "ok"}
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"MongoDB connection error: {str(e)}"
-        )
 
 # Root endpoint
 @app.get("/")
