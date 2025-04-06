@@ -11,7 +11,7 @@ from app.services.ai.websocket import (
 )
 
 app = FastAPI()
-router = APIRouter()
+router = APIRouter(prefix="/ws", tags=["WebSocket"])
 
 # Logging config
 logging.basicConfig(
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 app.include_router(router)
 
 
-@router.websocket("/ws/{interview_id}")
+@router.websocket("/{interview_id}")
 async def websocket_feedback(
     websocket: WebSocket,
     interview_id: str,

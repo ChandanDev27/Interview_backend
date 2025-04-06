@@ -20,6 +20,9 @@ from ..services.auth import get_current_user
 from app.services.ai.facial_analysis import extract_framewise_emotions, analyze_speech
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
+ALLOWED_VIDEO_MIME_TYPES = {"video/mp4", "video/x-msvideo", "video/quicktime"}
+ALLOWED_AUDIO_MIME_TYPES = {"audio/wav", "audio/x-wav"}
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/interviews", tags=["Interviews"])
 
@@ -148,9 +151,9 @@ async def finalize_interview_analysis(
         if not interview:
             raise HTTPException(status_code=404, detail="Interview not found or unauthorized")
 
-        if video.content_type not in ["video/mp4", "video/x-msvideo", "video/quicktime"]:
+        if video.content_type not in ALLOWED_VIDEO_MIME_TYPES:
             raise HTTPException(status_code=400, detail="Unsupported video MIME type")
-        if audio.content_type not in ["audio/wav", "audio/x-wav"]:
+        if audio.content_type not in ALLOWED_AUDIO_MIME_TYPES:
             raise HTTPException(status_code=400, detail="Unsupported audio MIME type")
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_video:
@@ -205,7 +208,7 @@ async def analyze_facial_expression_api(
         user_obj_id = ObjectId(user_id)
         interview_obj_id = ObjectId(interview_id)
 
-        if video.content_type not in ["video/mp4", "video/x-msvideo", "video/quicktime"]:
+        if video.content_type not in ALLOWED_VIDEO_MIME_TYPES:
             raise HTTPException(status_code=400, detail="Unsupported video MIME type")
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_video:
@@ -233,7 +236,7 @@ async def analyze_facial_expression_api(
         raise HTTPException(status_code=400, detail="Invalid ObjectId format")
     except Exception as e:
         logger.error(f"❌ Facial expression DB save failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Facial analysis failed")
+        raise HTTPException(status_code=500, detail="Facial analysis failed")
     finally:
         try:
             video.file.close()

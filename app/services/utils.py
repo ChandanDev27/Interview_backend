@@ -18,7 +18,15 @@ def is_password_strong(password: str) -> bool:
     )
 
 
-def verify_password(plain_password, hashed_password):
+def hash_password(password: str) -> str:
+    # Hash a password after checking strength.
+    if not is_password_strong(password):
+        raise WeakPasswordError("Password is too weak. It must be at least 8 characters long and include digits, uppercase, lowercase, and special characters.")
+    return pwd_context.hash(password)
+
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 

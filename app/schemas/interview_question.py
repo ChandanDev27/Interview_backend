@@ -1,14 +1,12 @@
-from pydantic import BaseModel, Field
-from typing import Optional
+from pydantic import BaseModel, Field, field_validator
+from typing import Optional, List
 from bson import ObjectId as BsonObjectId
 from datetime import datetime
 
 
 class PyObjectId(str):
-    """
-    Custom type for MongoDB ObjectId.
-    Ensures Pydantic models work smoothly with BSON ObjectId in MongoDB documents.
-    """
+    # Custom type for MongoDB ObjectId.
+    # Ensures Pydantic models work smoothly with BSON ObjectId in MongoDB documents.
     @classmethod
     def __get_validators__(cls):
         yield cls.validate
@@ -46,6 +44,11 @@ class QuestionBase(BaseModel):
         description="Example answer for reference",
         example="Polymorphism allows methods to do different things based on the object it is acting upon..."
     )
+
+    @field_validator("category")
+    @classmethod
+    def normalize_category(cls, v):
+        return v.strip().title()
 
 
 class QuestionCreate(QuestionBase):
@@ -103,6 +106,6 @@ class QuestionModel(QuestionResponse):
         description="Timestamp when the question was created"
     )
     updated_at: Optional[datetime] = Field(
-        None,
+        default_factory=datetime.utcnow,
         description="Timestamp when the question was last updated"
     )

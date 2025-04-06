@@ -2,7 +2,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, status, Depends
 import logging
 from typing import Dict
 from app.services.ai.facial_analysis import analyze_facial_expression_frame
-# from app.services.auth import get_current_user  # Uncomment if you want to protect this route
+# from app.services.auth import get_current_user
 
 router = APIRouter(
     prefix="/api/stream",
@@ -15,15 +15,8 @@ logger = logging.getLogger(__name__)
 @router.post("/frame", response_model=Dict[str, str])
 async def receive_frame(
     file: UploadFile = File(...),
-    # current_user: dict = Depends(get_current_user)  # Uncomment to protect with auth
+    # current_user: dict = Depends(get_current_user)
 ):
-    """
-    Upload a video frame for real-time facial expression analysis.
-    Accepts only JPEG or PNG image formats.
-
-    Returns:
-        A dictionary with detected emotion and confidence.
-    """
     if not file:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No frame uploaded.")
 

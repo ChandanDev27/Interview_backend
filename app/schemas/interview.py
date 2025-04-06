@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional
 from datetime import datetime
 from enum import Enum
@@ -19,6 +19,7 @@ class InterviewCreate(BaseModel):
         from_attributes = True
 
 
+# Schema for AI-generated feedback entries
 class AIFeedbackEntry(BaseModel):
     feedback: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
@@ -29,13 +30,19 @@ class InterviewResponse(BaseModel):
     id: Optional[str] = None
     user_id: str
     questions: List[str]
-    responses: List[str] = Field(default_factory=list)
-    status: InterviewStatus
-    status_history: Optional[List[str]] = Field(default_factory=list)
+    responses: List[Optional[str]] = Field(default_factory=list)
+    status: InterviewStatus = InterviewStatus.PENDING
+    status_history: List[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: Optional[datetime] = None
-    ai_feedback: Optional[List[AIFeedbackEntry]] = Field(default_factory=list)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    ai_feedback: List[AIFeedbackEntry] = Field(default_factory=list)
 
+    @field_validator("responses", mode="before")
+    @classmethod
+    def match_response_list(cls, v, values):
+        if not v and "questions" in values:
+            return [None] * len(values["questions"])
+        return v
 
     class Config:
         populate_by_name = True
@@ -50,3 +57,4 @@ class ResponseSubmission(BaseModel):
 # Schema for AI analysis feedback
 class AIAnalysis(BaseModel):
     feedback: str
+    timestamp: datetime = Field(default_factory=datetime.utcnow)

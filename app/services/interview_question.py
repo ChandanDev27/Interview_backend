@@ -1,7 +1,7 @@
 from app.schemas.interview_question import QuestionModel
 from app.config import logger
-from typing import List
-from pymongo import IndexModel, ASCENDING
+from typing import List, Optional
+from pymongo import IndexModel, ASCENDING, TEXT
 from pydantic import ValidationError
 
 
@@ -173,40 +173,85 @@ class QuestionService:
             }
         ]
 
-        valid_questions = []
-        for data in questions_data:
-            try:
-                valid_q = QuestionModel(**data)
-                valid_questions.append(valid_q.dict())
-            except ValidationError as e:
-                logger.error(f"❌ Validation error in question: {data.get('question', 'Unknown')}. Error: {e}")
-
-        if valid_questions:
-            try:
-                existing_count = await db["questions"].estimated_document_count()
-                if existing_count == 0:
-                    await db["questions"].insert_many(valid_questions)
-                    logger.info("✅ Questions seeded successfully.")
-                else:
-                    logger.warning("⚠️ Questions already exist in the database. Skipping seeding.")
-            except Exception as e:
-                logger.error(f"⚠️ Database error while seeding questions: {e}", exc_info=True)
-                raise
+        await QuestionService.create_indexes(db)
 
     @staticmethod
-    async def get_questions_by_experience(db, experience_level: str) -> List[dict]:
-        """Fetches interview questions based on experience level (fresher, experienced, both)."""
-        query = {"$or": [{"experience_level": experience_level}, {"experience_level": "both"}]}
-        questions = await db["questions"].find(query, {"_id": 0}).to_list(length=None)
-        return questions
+    async def get_questions(
+        db,
+        experience_level: Optional[str] = None,
+        category: Optional[str] = None,
+        keyword: Optional[str] = None,
+        skip: int = 0,
+        limit: int = 10
+    ) -> List[dict]:
+        """Fetches questions with optional filtering, keyword search, and pagination."""
+        query = {}
+
+        if experience_level:
+            query["$or"] = [
+                {"experience_level": experience_level},
+                {"experience_level": "both"}
+            ]
+        if category:
+            query["category"] = category
+        if keyword:
+            query["$text"] = {"$search": keyword}
+
+        projection = {"_id": 0}
+        results = await db["questions"].find(query, projection).skip(skip).limit(limit).to_list(length=None)
+        return results
+
+    @staticmethod
+    async def add_question(db, question_data: dict) -> dict:
+        """Add a new interview question (admin only)."""
+        try:
+            question = QuestionModel(**question_data)
+            await db["questions"].insert_one(question.dict())
+            return {"message": "Question added successfully."}
+        except ValidationError as ve:
+            logger.error(f"Validation error: {ve}")
+            return {"error": str(ve)}
+        except Exception as e:
+            logger.error(f"Error adding question: {e}")
+            return {"error": str(e)}
+
+    @staticmethod
+    async def update_question(db, question_id: str, update_data: dict) -> dict:
+        """Update an existing question by its ID (admin only)."""
+        from bson import ObjectId
+        try:
+            result = await db["questions"].update_one(
+                {"_id": ObjectId(question_id)},
+                {"$set": update_data}
+            )
+            if result.matched_count:
+                return {"message": "Question updated."}
+            return {"error": "Question not found."}
+        except Exception as e:
+            logger.error(f"Error updating question: {e}")
+            return {"error": str(e)}
+
+    @staticmethod
+    async def delete_question(db, question_id: str) -> dict:
+        """Delete a question by ID (admin only)."""
+        from bson import ObjectId
+        try:
+            result = await db["questions"].delete_one({"_id": ObjectId(question_id)})
+            if result.deleted_count:
+                return {"message": "Question deleted successfully."}
+            return {"error": "Question not found."}
+        except Exception as e:
+            logger.error(f"Error deleting question: {e}")
+            return {"error": str(e)}
 
     @staticmethod
     async def create_indexes(db):
-        """Ensures indexes for faster queries."""
+        """Ensure indexes for filtering and search."""
         try:
             await db["questions"].create_indexes([
                 IndexModel([("experience_level", ASCENDING)]),
-                IndexModel([("category", ASCENDING)])
+                IndexModel([("category", ASCENDING)]),
+                IndexModel([("question", TEXT), ("tags", TEXT)])  # full-text search
             ])
             logger.info("✅ Indexes created successfully.")
         except Exception as e:

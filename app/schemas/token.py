@@ -1,12 +1,13 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Literal
 
 
 class Token(BaseModel):
-    access_token: str = Field(..., min_length=1, description="JWT access token")
-    token_type: str = Field(..., min_length=1, description="Type of token (usually 'bearer')")
+    access_token: str = Field(..., description="JWT access token")
+    token_type: Literal["bearer"] = "bearer"
 
     class Config:
+        from_attributes = True
         json_schema_extra = {
             "example": {
                 "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -19,6 +20,7 @@ class TokenData(BaseModel):
     client_id: Optional[str] = Field(default=None, description="Client ID associated with the token")
 
     class Config:
+        from_attributes = True
         json_schema_extra = {
             "example": {
                 "client_id": "12345"
@@ -28,9 +30,10 @@ class TokenData(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token: str
-    token_type: str = "bearer"
+    token_type: Literal["bearer"] = "bearer"
 
     class Config:
+        from_attributes = True
         json_schema_extra = {
             "example": {
                 "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",

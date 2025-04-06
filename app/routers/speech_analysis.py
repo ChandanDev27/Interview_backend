@@ -12,14 +12,6 @@ logger = logging.getLogger(__name__)
 
 @router.post("/analyze", summary="Analyze uploaded speech audio file")
 async def analyze_speech_api(file: UploadFile = File(...)):
-    """
-    Analyze an uploaded audio file (WAV/MP3) to generate:
-    - Transcript
-    - Sentiment analysis
-    - Extracted keywords
-
-    Returns structured AI analysis.
-    """
     if not file:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No file uploaded.")
 
@@ -43,7 +35,6 @@ async def analyze_speech_api(file: UploadFile = File(...)):
             temp_audio_path = temp_audio.name
             shutil.copyfileobj(file.file, temp_audio)
 
-        # Convert MP3 to WAV if needed
         if file.filename.lower().endswith(".mp3"):
             audio = AudioSegment.from_file(temp_audio_path, format="mp3")
             audio.export(temp_wav_path, format="wav")

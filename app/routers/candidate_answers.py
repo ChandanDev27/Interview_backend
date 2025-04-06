@@ -1,11 +1,13 @@
 from fastapi import APIRouter, HTTPException
 from datetime import datetime
 import logging
-from app.database import database
+from app.database import get_database
 from app.models.candidate_answers import CandidateAnswer, CandidateAnswerDB
 
 router = APIRouter(prefix="/candidate_answers", tags=["Candidate Answers"])
-answers_collection = database.get_collection("candidate_answers")
+async def get_answers_collection():
+    db = await get_database()  # Ensure connection
+    return db.get_collection("candidate_answers")
 
 # Logger setup
 logging.basicConfig(level=logging.INFO)

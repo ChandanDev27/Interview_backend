@@ -196,20 +196,33 @@ async def verify_otp_service(email: str, otp: str):
     db = await get_database()
     email = email.strip().lower()
 
-    # Check if user exists and OTP is available
     user = await db["users"].find_one({"email": email})
-    if not user or user.get("otp") is None:
-        raise HTTPException(status_code=400, detail="Invalid OTP")
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
 
-    # Check OTP expiration
-    otp_expiry = user.get("otp_expires_at", datetime.utcnow())
-    if datetime.utcnow() > otp_expiry:
+    if user.get("otp") is None:
+        raise HTTPException(status_code=400, detail="OTP not found or already verified")
+
+    if datetime.utcnow() > user.get("otp_expires_at", datetime.utcnow()):
         raise HTTPException(status_code=400, detail="OTP expired")
 
+    if user.get("otp_attempts", 0) >= MAX_OTP_ATTEMPTS:
+        raise HTTPException(status_code=403, detail="Too many failed attempts. OTP locked.")
+
     if user["otp"] != otp:
+        await db["users"].update_one(
+            {"email": email},
+            {"$inc": {"otp_attempts": 1}}
+        )
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
-    # Mark user as verified and remove OTP from database
-    await db["users"].update_one({"email": email}, {"$set": {"is_verified": True}, "$unset": {"otp": "", "otp_expires_at": ""}})
+    # OTP valid
+    await db["users"].update_one(
+        {"email": email},
+        {
+            "$set": {"is_verified": True},
+            "$unset": {"otp": "", "otp_expires_at": "", "otp_sent_at": "", "otp_attempts": ""}
+        }
+    )
 
     return {"message": "OTP verified successfully"}

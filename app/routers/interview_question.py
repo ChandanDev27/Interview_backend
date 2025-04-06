@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+import logging
 from typing import List
 from app.schemas.interview_question import QuestionModel
 from app.services.interview_question import QuestionService
@@ -9,6 +10,11 @@ router = APIRouter(
     prefix="/questions",
     tags=["Interview Questions"]
 )
+
+
+logger = logging.getLogger(__name__)
+logger.info("Seeding questions...")
+
 
 @router.get("/experience/{experience_level}", response_model=List[QuestionModel])
 async def get_questions_by_experience(
@@ -42,3 +48,12 @@ async def create_question_indexes(db: AsyncIOMotorDatabase = Depends(get_databas
     """
     await QuestionService.create_indexes(db)
     return {"message": "Indexes created successfully."}
+
+@router.get("/search", response_model=List[QuestionModel])
+async def search_questions(
+    category: str = None,
+    keyword: str = None,
+    difficulty: str = None,
+    db: AsyncIOMotorDatabase = Depends(get_database)
+):
+    return await QuestionService.search_questions(db, category, keyword, difficulty)

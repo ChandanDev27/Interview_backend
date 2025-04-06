@@ -4,16 +4,19 @@ from datetime import datetime
 from bson import ObjectId, errors
 from app.database import MongoDBManager, get_database
 from app.routers import (
-    auth, user, interview, facial_analysis,
-    speech_analysis, interview_question, ai_analysis  # ✅ Added ai_analysis here
+    auth, user, interview, facial_analysis, feedback, websocket,
+    speech_analysis, interview_question, ai_analysis, candidate_answers
 )
 from app.routers.websocket import router as websocket_router
 from app.schemas.user import User
 from app.config import settings, logger
 from slowapi.errors import RateLimitExceeded
 from starlette.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+import os
 
 app = FastAPI(title="Interview Genie Backend", version="1.0")
+os.makedirs("media/avatars", exist_ok=True)
 
 # CORS middleware
 app.add_middleware(
@@ -32,7 +35,11 @@ app.include_router(websocket_router, prefix="/api")
 app.include_router(facial_analysis.router)
 app.include_router(speech_analysis.router)
 app.include_router(interview_question.router, prefix="/questions")
-app.include_router(ai_analysis.router)  # ✅ Added ai_analysis router here
+app.include_router(ai_analysis.router)
+app.include_router(candidate_answers.router)
+app.include_router(feedback.router)
+app.include_router(websocket.router, prefix="/api")
+app.mount("/media", StaticFiles(directory="media"), name="media")
 
 # Initialize MongoDB
 mongo_manager = MongoDBManager(
