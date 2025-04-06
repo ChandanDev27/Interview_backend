@@ -5,7 +5,7 @@ from bson import ObjectId, errors
 from app.database import MongoDBManager, get_database
 from app.routers import (
     auth, user, interview, facial_analysis,
-    speech_analysis, interview_question
+    speech_analysis, interview_question, ai_analysis  # ✅ Added ai_analysis here
 )
 from app.routers.websocket import router as websocket_router
 from app.schemas.user import User
@@ -15,6 +15,7 @@ from starlette.responses import JSONResponse
 
 app = FastAPI(title="Interview Genie Backend", version="1.0")
 
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -31,32 +32,42 @@ app.include_router(websocket_router, prefix="/api")
 app.include_router(facial_analysis.router)
 app.include_router(speech_analysis.router)
 app.include_router(interview_question.router, prefix="/questions")
+app.include_router(ai_analysis.router)  # ✅ Added ai_analysis router here
 
-# Initialize MongoDB Manager
+# Initialize MongoDB
 mongo_manager = MongoDBManager(
     uri=settings.MONGO_URI,
     db_name=settings.MONGO_DB_NAME,
     settings=settings
 )
 
+
+async def ensure_indexes():
+    db = await get_database()
+    users_collection = db["users"]
+    await users_collection.create_index([("email", 1)], unique=True)
+
+    interviews_collection = db["interviews"]
+    await interviews_collection.create_index([("user_id", 1)])
+
+
 # FastAPI Lifecycle Events
-
-
 @app.on_event("startup")
 async def startup_event():
     await mongo_manager.connect()
-
+    await ensure_indexes()
 
 @app.on_event("shutdown")
 async def shutdown_event():
     await mongo_manager.close()
+    await ensure_indexes()
 
-
+# Global Exception Handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     return JSONResponse(status_code=500, content={"message": "An internal server error occurred"})
 
-
+# Rate Limit Exception Handler
 @app.exception_handler(RateLimitExceeded)
 async def rate_limit_handler(request, exc):
     return JSONResponse(
@@ -64,18 +75,16 @@ async def rate_limit_handler(request, exc):
         content={"message": "Too many requests! Please try again later."}
     )
 
-
-# Convert MongoDB document to dictionary
+# Serialize MongoDB User Document
 def serialize_user(user):
     return {
         "id": str(user["_id"]),
         "name": user.get("name", "Anonymous"),
         "email": user.get("email", "N/A"),
         "imageUrl": user.get("imageUrl", ""),
-        "createdAt": user.get("createdAt", datetime.utcnow()),  # Use actual MongoDB value
-        "updatedAt": user.get("updatedAt", datetime.utcnow()),  # Use actual MongoDB value
+        "createdAt": user.get("createdAt", datetime.utcnow()),
+        "updatedAt": user.get("updatedAt", datetime.utcnow()),
     }
-
 
 # Store User API
 @app.post("/auth/store-user/")
@@ -110,7 +119,6 @@ async def store_user(user: User, db=Depends(get_database)):
         logger.error(f"Error storing user: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
 # Get User API
 @app.get("/auth/get-user/{user_id}")
 async def get_user(user_id: str, db=Depends(get_database)):
@@ -132,7 +140,6 @@ async def get_user(user_id: str, db=Depends(get_database)):
 
     return serialize_user(user)
 
-
 # MongoDB Health Check
 @app.get("/health")
 async def health_check(db=Depends(get_database)):
@@ -144,7 +151,6 @@ async def health_check(db=Depends(get_database)):
             status_code=500,
             detail=f"MongoDB connection error: {str(e)}"
         )
-
 
 # Root endpoint
 @app.get("/")

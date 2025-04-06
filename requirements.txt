@@ -25,4 +25,9 @@ vaderSentiment
 python-decouple
 pydantic[email]
 numpy<2
+soundfile
+librosa
+SpeechRecognition
 spacy
+fer
+vaderSentiment

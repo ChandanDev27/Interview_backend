@@ -18,33 +18,22 @@ from ..schemas.interview import (
 )
 from ..services.auth import get_current_user
 from app.services.ai.facial_analysis import extract_framewise_emotions, analyze_speech
+from motor.motor_asyncio import AsyncIOMotorDatabase
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/interviews", tags=["Interviews"])
 
 
-@router.on_event("startup")
-async def ensure_indexes():
-    db = await get_database()
-    await db["interviews"].create_index([("user_id", 1)])
-    await db["interviews"].create_index([("created_at", 1)])
-
-
 @router.get("/", response_model=List[InterviewResponse])
-async def get_interviews(current_user: dict = Depends(get_current_user)):
-    db = await get_database()
+async def get_interviews(current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_database)):
     user_id = str(current_user["client_id"])
     interviews = await db["interviews"].find({"user_id": user_id}).to_list(length=100)
     return [InterviewResponse(**{**i, "id": str(i["_id"])}) for i in interviews]
 
 
 @router.post("/", response_model=InterviewResponse)
-async def create_interview(
-    interview: InterviewCreate, current_user: dict = Depends(get_current_user)
-):
+async def create_interview(interview: InterviewCreate, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_database)):
     try:
-        db = await get_database()
-
         interview_data = interview.model_dump()
         interview_data.update({
             "user_id": str(current_user["client_id"]),
@@ -73,15 +62,11 @@ async def submit_response(
     interview_id: str,
     response_data: ResponseSubmission,
     current_user: dict = Depends(get_current_user),
+    db: AsyncIOMotorDatabase = Depends(get_database)
 ):
     try:
-        db = await get_database()
         user_id = str(current_user["client_id"])
-
-        try:
-            interview_obj_id = ObjectId(interview_id)
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid interview ID format")
+        interview_obj_id = ObjectId(interview_id)
 
         result = await db["interviews"].update_one(
             {"_id": interview_obj_id, "user_id": user_id},
@@ -98,12 +83,14 @@ async def submit_response(
         )
 
         if result.matched_count == 0:
-            logger.warning(f"⚠️ Interview not found: {interview_id}")
+            logger.warning(f"⚠️ Interview not found or unauthorized: {interview_id}")
             raise HTTPException(status_code=404, detail="Interview not found or not authorized")
 
         logger.info(f"✅ Responses recorded for interview: {interview_id}")
-        return {"message": "Responses recorded successfully"}
+        return {"status": "success", "message": "Responses recorded successfully"}
 
+    except InvalidId:
+        raise HTTPException(status_code=400, detail="Invalid interview ID format")
     except Exception as e:
         logger.exception(f"❌ Error submitting response: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
@@ -114,15 +101,11 @@ async def store_ai_feedback(
     interview_id: str,
     feedback_data: AIAnalysis,
     current_user: dict = Depends(get_current_user),
+    db: AsyncIOMotorDatabase = Depends(get_database)
 ):
     try:
-        db = await get_database()
         user_id = str(current_user["client_id"])
-
-        try:
-            interview_obj_id = ObjectId(interview_id)
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid interview ID format")
+        interview_obj_id = ObjectId(interview_id)
 
         feedback_entry = AIFeedbackEntry(
             feedback=feedback_data.feedback,
@@ -142,8 +125,10 @@ async def store_ai_feedback(
             raise HTTPException(status_code=404, detail="Interview not found or not authorized")
 
         logger.info(f"✅ AI feedback stored for interview: {interview_id}")
-        return {"message": "AI feedback stored successfully"}
+        return {"status": "success", "message": "AI feedback stored successfully"}
 
+    except InvalidId:
+        raise HTTPException(status_code=400, detail="Invalid interview ID format")
     except Exception as e:
         logger.exception(f"❌ Error storing AI feedback: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
@@ -155,10 +140,19 @@ async def finalize_interview_analysis(
     user_id: str = Form(...),
     video: UploadFile = File(...),
     audio: UploadFile = File(...),
-    db=Depends(get_database)
+    db: AsyncIOMotorDatabase = Depends(get_database)
 ):
     video_path = audio_path = None
     try:
+        interview = await db["interviews"].find_one({"_id": ObjectId(interview_id), "user_id": user_id})
+        if not interview:
+            raise HTTPException(status_code=404, detail="Interview not found or unauthorized")
+
+        if video.content_type not in ["video/mp4", "video/x-msvideo", "video/quicktime"]:
+            raise HTTPException(status_code=400, detail="Unsupported video MIME type")
+        if audio.content_type not in ["audio/wav", "audio/x-wav"]:
+            raise HTTPException(status_code=400, detail="Unsupported audio MIME type")
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_video:
             temp_video.write(await video.read())
             video_path = temp_video.name
@@ -175,16 +169,18 @@ async def finalize_interview_analysis(
         )
 
         return {
+            "status": "success",
             "message": "Interview analysis complete",
             "feedback_for_candidate": feedback,
             "facial_analysis": facial_result,
             "speech_analysis": speech_result
         }
 
+    except InvalidId:
+        raise HTTPException(status_code=400, detail="Invalid ID format")
     except Exception as e:
-        logger.error(f"Final interview analysis failed: {str(e)}")
+        logger.error(f"❌ Final interview analysis failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Final analysis failed")
-
     finally:
         try:
             video.file.close()
@@ -202,18 +198,15 @@ async def analyze_facial_expression_api(
     video: UploadFile = File(...),
     user_id: str = Form(...),
     interview_id: str = Form(...),
-    db=Depends(get_database)
+    db: AsyncIOMotorDatabase = Depends(get_database)
 ):
     video_path = None
     try:
-        try:
-            user_obj_id = ObjectId(user_id)
-            interview_obj_id = ObjectId(interview_id)
-        except InvalidId:
-            raise HTTPException(status_code=400, detail="Invalid ObjectId format")
+        user_obj_id = ObjectId(user_id)
+        interview_obj_id = ObjectId(interview_id)
 
-        if not video.filename.endswith((".mp4", ".avi", ".mov")):
-            raise HTTPException(status_code=400, detail="Invalid video format")
+        if video.content_type not in ["video/mp4", "video/x-msvideo", "video/quicktime"]:
+            raise HTTPException(status_code=400, detail="Unsupported video MIME type")
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_video:
             temp_video.write(await video.read())
@@ -230,12 +223,17 @@ async def analyze_facial_expression_api(
 
         await db["facial_analysis"].insert_one(analysis_doc)
 
-        return {"message": "Analysis complete", "data": analysis_result}
+        return {
+            "status": "success",
+            "message": "Facial expression analysis complete",
+            "data": analysis_result
+        }
 
+    except InvalidId:
+        raise HTTPException(status_code=400, detail="Invalid ObjectId format")
     except Exception as e:
         logger.error(f"❌ Facial expression DB save failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Facial analysis failed: {str(e)}")
-
+        raise HTTPException(status_code=500, detail=f"Facial analysis failed")
     finally:
         try:
             video.file.close()

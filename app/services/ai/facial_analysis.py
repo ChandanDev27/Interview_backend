@@ -3,10 +3,13 @@ import numpy as np
 from deepface import DeepFace
 from collections import Counter
 import speech_recognition as sr
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+from bson import ObjectId
+from datetime import datetime
+
 
 # --------------------------------------------
-# Facial Expression Analysis (Frame-by-Frame)
+# Frame-by-Frame Facial Emotion Extraction
 # --------------------------------------------
 def extract_framewise_emotions(video_path: str) -> Dict[str, Any]:
     cap = cv2.VideoCapture(video_path)
@@ -43,6 +46,7 @@ def extract_framewise_emotions(video_path: str) -> Dict[str, Any]:
 
     emotion_counts = dict(Counter(all_emotions))
     most_common = Counter(all_emotions).most_common(3)
+
     return {
         "framewise_emotions": framewise_results,
         "summary": {
@@ -53,7 +57,7 @@ def extract_framewise_emotions(video_path: str) -> Dict[str, Any]:
 
 
 # -------------------------------------------------
-# ✅ Async Wrapper for Facial Expression Analysis
+# Async Wrapper for Facial Analysis
 # -------------------------------------------------
 async def analyze_facial_expression(video_path: str) -> Dict[str, Any]:
     try:
@@ -70,8 +74,9 @@ async def analyze_facial_expression(video_path: str) -> Dict[str, Any]:
             "data": None
         }
 
+
 # -------------------------------------------------
-# ✅ Speech Emotion (via audio transcript)
+# Async Wrapper for Audio Transcription
 # -------------------------------------------------
 async def analyze_speech(audio_path: str) -> Dict[str, Any]:
     recognizer = sr.Recognizer()
@@ -82,14 +87,15 @@ async def analyze_speech(audio_path: str) -> Dict[str, Any]:
             transcript = recognizer.recognize_google(audio)
             print("Transcript:", transcript)
 
-            # You can apply sentiment/emotion analysis on transcript here (e.g., spaCy, transformers, TextBlob, etc.)
-            # For now, just return basic structure.
+            # Placeholder speech clarity score
+            speech_score = 8  # You can replace this with a real metric later
+
             return {
                 "status": "success",
                 "message": "Speech transcription completed.",
                 "data": {
                     "transcript": transcript,
-                    "emotion_analysis": "Coming soon..."
+                    "speech_score": speech_score
                 }
             }
 
@@ -106,8 +112,9 @@ async def analyze_speech(audio_path: str) -> Dict[str, Any]:
             "data": None
         }
 
+
 # -------------------------------------------------
-# ✅ Combined Video + Audio Emotion Analysis
+# Combined Video + Audio Analysis
 # -------------------------------------------------
 async def analyze_video_audio(video_path: str, audio_path: str) -> Dict[str, Any]:
     try:
@@ -132,9 +139,14 @@ async def analyze_video_audio(video_path: str, audio_path: str) -> Dict[str, Any
 
 
 # -------------------------------------------------
-# ✅ It is used to store interview in database and also return feedback for the candidate
+# Save Analysis Result to MongoDB
 # -------------------------------------------------
-async def save_interview_analysis_to_db(db, user_id, interview_id, facial_result, speech_result=None):
+async def save_interview_analysis_to_db(
+    db, user_id: str, interview_id: str,
+    facial_result: Dict[str, Any],
+    speech_result: Optional[Dict[str, Any]] = None
+) -> str:
+
     feedback = generate_candidate_feedback(facial_result, speech_result)
 
     analysis_doc = {
@@ -143,17 +155,37 @@ async def save_interview_analysis_to_db(db, user_id, interview_id, facial_result
         "facial_analysis": facial_result,
         "speech_analysis": speech_result,
         "ai_feedback": feedback,
-        "created_at": datetime.utcnow()
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow()
     }
 
     await db["interview_analysis"].insert_one(analysis_doc)
+
+    # Optional: update interview document status
+    await db["interviews"].update_one(
+        {"_id": ObjectId(interview_id)},
+        {
+            "$set": {
+                "status": "analyzed",
+                "updated_at": datetime.utcnow()
+            },
+            "$push": {
+                "status_history": "analyzed"
+            }
+        }
+    )
+
     return feedback
 
 
 # -------------------------------------------------
-# ✅ It generate feedback for the candidate based on the analysis
+# Generate Feedback from Analysis
 # -------------------------------------------------
-def generate_candidate_feedback(facial_result, speech_result):
+def generate_candidate_feedback(
+    facial_result: Dict[str, Any],
+    speech_result: Optional[Dict[str, Any]] = None
+) -> str:
+
     emotions_summary = facial_result.get("summary", {})
     top_emotions = emotions_summary.get("top_3", [])
     common_emotion = top_emotions[0][0] if top_emotions else "neutral"
@@ -169,6 +201,5 @@ def generate_candidate_feedback(facial_result, speech_result):
         else:
             feedback += "Try to speak more clearly next time. "
 
-    feedback += "Overall, you performed decently. Practice more for better results."
-
+    feedback += "Overall, you performed decently. Keep practicing for improvement."
     return feedback

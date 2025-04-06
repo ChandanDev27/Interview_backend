@@ -1,81 +1,44 @@
-from fastapi import APIRouter, HTTPException
-from bson import ObjectId
-from datetime import datetime
-import logging
-import asyncio
-from app.database import get_database  # Import the get_database function
+from fastapi import APIRouter, Depends, HTTPException, status
+from typing import List
+from app.schemas.interview_question import QuestionModel
+from app.services.interview_question import QuestionService
+from app.database import get_database
+from motor.motor_asyncio import AsyncIOMotorDatabase
 
-from app.models.candidate_answers import CandidateAnswer, CandidateAnswerDB
+router = APIRouter(
+    prefix="/questions",
+    tags=["Interview Questions"]
+)
 
-router = APIRouter(prefix="/candidate_answers", tags=["Candidate Answers"])
-
-
-async def get_answers_collection():
-    db = await get_database()  # Ensure the database is connected
-    return db.get_collection("candidate_answers")
-
-
-# ✅ Ensure index for fast lookups
-
-
-async def create_indexes():
-    answers_collection = await get_answers_collection()  # Get the collection
-# Get the collection
-    await answers_collection.create_index(
-
-        [("candidate_id", 1), ("question_id", 1)], unique=True
-    )
-
-# Call the function to create indexes
-
-
-asyncio.create_task(create_indexes())
-
-# Logger setup
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-
-@router.post("/", response_model=CandidateAnswerDB)
-async def store_answer(answer: CandidateAnswer):
-    answers_collection = await get_answers_collection()  # Get the collection here
+@router.get("/experience/{experience_level}", response_model=List[QuestionModel])
+async def get_questions_by_experience(
+    experience_level: str,
+    db: AsyncIOMotorDatabase = Depends(get_database)
+):
     """
-    Stores a candidate's answer in MongoDB.
-    Prevents duplicate answers for the same question.
+    Get interview questions by experience level: fresher, experienced, or both.
     """
-    try:
-        # ✅ Check if the candidate has already answered
-        existing_answer = await answers_collection.find_one({
-            "candidate_id": answer.candidate_id,
-            "question_id": answer.question_id
-        })
-        if existing_answer:
-            logger.warning(
-                f"⚠️ Duplicate answer attempt: {answer.candidate_id} - "
-                f"{answer.question_id}"
-            )
-            raise HTTPException(
-                status_code=400,
-                detail="Candidate has already answered this question"
-            )
+    if experience_level not in {"fresher", "experienced", "both"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid experience level. Choose from 'fresher', 'experienced', or 'both'."
+        )
+    
+    questions = await QuestionService.get_questions_by_experience(db, experience_level)
+    return questions
 
-        # ✅ Convert to dictionary & add MongoDB `_id`
-        answer_dict = answer.model_dump()
-        answer_dict["_id"] = ObjectId()  # MongoDB ID
-        answer_dict["created_at"] = datetime.utcnow()
+@router.post("/seed", status_code=status.HTTP_201_CREATED)
+async def seed_interview_questions(db: AsyncIOMotorDatabase = Depends(get_database)):
+    """
+    Seed the database with predefined interview questions.
+    """
+    await QuestionService.seed_questions(db)
+    return {"message": "Questions seeding completed (or skipped if already exists)."}
 
-        # ✅ Insert into DB
-        result = await answers_collection.insert_one(answer_dict)
-
-        if result.inserted_id:
-            logger.info(
-                f"✅ Answer stored: {answer.candidate_id} - "
-                f"{answer.question_id}"
-            )
-            return CandidateAnswerDB(**answer_dict, id=str(result.inserted_id))
-
-        raise HTTPException(status_code=500, detail="Failed to store answer")
-
-    except Exception as e:
-        logger.exception(f"❌ Error storing answer: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal Server Error")
+@router.post("/indexes")
+async def create_question_indexes(db: AsyncIOMotorDatabase = Depends(get_database)):
+    """
+    Create indexes on question collection for optimized querying.
+    """
+    await QuestionService.create_indexes(db)
+    return {"message": "Indexes created successfully."}
