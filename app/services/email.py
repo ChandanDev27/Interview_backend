@@ -1,7 +1,7 @@
 import os
 from datetime import datetime, timedelta
 from email.message import EmailMessage
-
+from app.config import settings
 import aiosmtplib
 from email_validator import validate_email, EmailNotValidError
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -96,7 +96,6 @@ async def send_email(email: str, subject: str, html_body: str) -> dict:
         msg.add_alternative(html_body, subtype='html')
 
         async with aiosmtplib.SMTP(hostname=SMTP_SERVER, port=SMTP_PORT) as server:
-            await server.starttls()
             await server.login(SMTP_USERNAME, SMTP_PASSWORD)
             await server.send_message(msg)
 
@@ -140,21 +139,52 @@ async def send_welcome_email(email: str, user_name: str) -> dict:
             year=datetime.utcnow().year
         )
         return await send_email(email, f"Welcome to {APP_NAME}!", html)
+
     except Exception as e:
         logger.error(f"Error rendering welcome email template: {str(e)}")
         return {"error": "Failed to generate welcome email content"}
 
-# Password Reset Email
-async def send_password_reset_email(email: str, user_name: str, reset_link: str) -> dict:
+
+async def send_admin_notification_email(name: str, email: str, role: str):
+    subject = f"🚀 New {role.capitalize()} Signup Notification"
+    admin_email = settings.SUPPORT_EMAIL
+
+    # Determine which template to use based on role
+    template_name = f"admin_signup_{role}.html"
+    template_path = f"{template_name}"
+
+    # If the role-specific template doesn’t exist, fall back to generic
     try:
-        html = templates.get_template("emails/password_reset.html").render(
-            user_name=user_name,
-            reset_link=reset_link,
-            app_name=APP_NAME,
-            support_email=SUPPORT_EMAIL,
-            year=datetime.utcnow().year
-        )
-        return await send_email(email, "Password Reset Instructions", html)
+        template = templates.get_template(template_path)
     except Exception as e:
-        logger.error(f"Error rendering password reset email template: {str(e)}")
-        return {"error": "Failed to generate password reset email content"}
+        logger.warning(f"⚠️ Template for role '{role}' not found. Falling back to default.")
+        template = templates.get_template("admin_signup_notification.html")
+
+    rendered = template.render({
+        "name": name,
+        "email": email,
+        "role": role,
+        "timestamp": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    })
+
+    message = EmailMessage()
+    message["From"] = settings.SMTP_USERNAME
+    message["To"] = settings.ADMIN_EMAIL
+    message["Subject"] = subject
+    message.set_content(f"A new {role} has registered.")
+    message.add_alternative(rendered, subtype="html")
+
+    try:
+        await aiosmtplib.send(
+            message,
+            hostname=settings.SMTP_SERVER,
+            port=settings.SMTP_PORT,
+            username=settings.SMTP_USERNAME,
+            password=settings.SMTP_PASSWORD,
+            start_tls=True
+        )
+        logger.info(f"✅ Admin notified of new {role} signup: {email}")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Failed to send admin signup email: {e}")
+        return False

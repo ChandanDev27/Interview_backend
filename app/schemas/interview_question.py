@@ -4,22 +4,14 @@ from bson import ObjectId as BsonObjectId
 from datetime import datetime
 
 
-class PyObjectId(str):
-    # Custom type for MongoDB ObjectId.
-    # Ensures Pydantic models work smoothly with BSON ObjectId in MongoDB documents.
-    @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
-
-    @classmethod
-    def validate(cls, v):
-        if not BsonObjectId.is_valid(v):
-            raise ValueError("Invalid ObjectId")
-        return str(v)
+# Helper for converting and validating ObjectId (optional use)
+def validate_object_id(v: str) -> str:
+    if not BsonObjectId.is_valid(v):
+        raise ValueError("Invalid ObjectId")
+    return str(v)
 
 
 class QuestionBase(BaseModel):
-    # Base schema for an interview question
     category: str = Field(
         ...,
         min_length=2,
@@ -52,27 +44,23 @@ class QuestionBase(BaseModel):
 
 
 class QuestionCreate(QuestionBase):
-    # Schema for creating a new question
     pass
 
 
 class QuestionResponse(QuestionBase):
-    # Schema for returning a question response from the API
-    id: PyObjectId = Field(
+    id: str = Field(
         ...,
         alias="_id",
-        title="ID",
-        description="Unique identifier of the question"
+        description="Unique identifier of the question",
+        example="605c72ef8f1b2c06d890e5d3"
     )
 
     class Config:
-        orm_mode = True
         json_encoders = {BsonObjectId: str}
-        allow_population_by_field_name = True
+        populate_by_name = True
 
 
 class QuestionUpdate(BaseModel):
-    # Schema for updating an existing question (partial updates)
     category: Optional[str] = Field(
         None,
         min_length=2,
@@ -100,7 +88,6 @@ class QuestionUpdate(BaseModel):
 
 
 class QuestionModel(QuestionResponse):
-    # Final DB model used in MongoDB collections
     created_at: datetime = Field(
         default_factory=datetime.utcnow,
         description="Timestamp when the question was created"

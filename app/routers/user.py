@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Body, File, UploadFile
 from typing import List
 from app.schemas.user import UserResponse, UserUpdate, AdminUserUpdate, ChangePasswordRequest
-from app.services.auth import get_current_user, hash_password, verify_password
+from app.services.auth import get_current_user, hash_password, verify_password, generate_hr_invite_token
 from app.models.user import User
 from app.database import get_database
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -129,3 +129,42 @@ async def delete_user(
         raise HTTPException(status_code=404, detail="User not found")
 
     return {"message": "User deleted successfully"}
+
+
+@router.put("/{user_id}/role")
+async def update_user_role(
+    user_id: str,
+    new_role: str = Body(..., embed=True),
+    current_user: User = Depends(get_current_user),
+    db: AsyncIOMotorDatabase = Depends(get_database)
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can update user roles.")
+
+    ROLES = ["candidate", "hr", "admin"]  # update as needed
+
+    if new_role not in ROLES:
+        raise HTTPException(status_code=400, detail="Invalid role.")
+
+    if new_role == "admin":
+        raise HTTPException(status_code=403, detail="Cannot assign 'admin' role directly.")
+
+    result = await db["users"].update_one(
+        {"_id": ObjectId(user_id)},
+        {"$set": {"role": new_role}}
+    )
+
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    return {"message": f"User role updated to '{new_role}'"}
+
+@router.post("/generate-hr")
+async def generate_hr_invite_link(email: str, current_user=Depends(get_current_user)):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admins only")
+
+    token = generate_hr_invite_token(email)
+    invite_url = f"{settings.FRONTEND_URL}/register?invite_token={token}"
+
+    return {"invite_url": invite_url}

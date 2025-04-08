@@ -4,7 +4,7 @@ from email.mime.text import MIMEText
 # Email configuration
 smtp_server = 'smtp.gmail.com'
 smtp_port = 587
-sender_email = 'chandan18305@gmail.com'
+sender_email = 'admin@gmail.com'
 sender_password = 'rihxkkzrzoafktkt'  # Use App Password if 2FA is enabled
 recipient_email = 'chandan27112004@gmail.com'
 subject = 'Test Email'

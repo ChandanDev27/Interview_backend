@@ -1,0 +1,27 @@
+{% extends "emails/base.html" %}
+
+{% block content %}
+  <h2 style="color: #2c3e50;">👤 New Candidate Signup</h2>
+  <p>A new <strong>candidate</strong> has joined <strong>{{ app_name }}</strong>!</p>
+
+  <table style="margin-top: 15px; border-collapse: collapse;">
+    <tr>
+      <td style="padding: 6px 12px;"><strong>Name:</strong></td>
+      <td style="padding: 6px 12px;">{{ name }}</td>
+    </tr>
+    <tr>
+      <td style="padding: 6px 12px;"><strong>Email:</strong></td>
+      <td style="padding: 6px 12px;">{{ email }}</td>
+    </tr>
+    <tr>
+      <td style="padding: 6px 12px;"><strong>Role:</strong></td>
+      <td style="padding: 6px 12px;">{{ role }}</td>
+    </tr>
+    <tr>
+      <td style="padding: 6px 12px;"><strong>Time:</strong></td>
+      <td style="padding: 6px 12px;">{{ timestamp }}</td>
+    </tr>
+  </table>
+
+  <p style="margin-top: 20px;">Check the admin panel for review or approval.</p>
+{% endblock %}

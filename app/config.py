@@ -40,6 +40,8 @@ class Settings:
     # App Meta
     APP_NAME: str = os.getenv("APP_NAME", "Interview Genie")
     SUPPORT_EMAIL: str = os.getenv("SUPPORT_EMAIL", "support@example.com")
+    ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL", "admin@example.com")
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
 
     # Logging Configuration
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO").upper()

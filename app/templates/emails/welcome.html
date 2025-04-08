@@ -1,0 +1,21 @@
+{% extends "emails/base.html" %}
+
+{% block content %}
+  <h2>Welcome to {{ app_name }}!</h2>
+  <p>Hi {{ user_name }},</p>
+  
+  <p>We’re excited to welcome you to the {{ app_name }} community. Your account has been successfully created, and you’re now all set to begin your journey with us.</p>
+
+  <p>To get started, log in to your dashboard and explore the tools and features designed to support your goals. We also recommend checking out our resource center for helpful guides and best practices.</p>
+
+  <p>If you have any questions or need assistance, our support team is just an email away. Feel free to reach us at <a href="mailto:{{ support_email }}" style="color: #007BFF;">{{ support_email }}</a>.</p>
+
+  <p>We look forward to being part of your success!</p>
+
+  <p>Warm regards,<br>The {{ app_name }} Team</p>
+
+  <hr>
+  <p style="font-size: 12px; color: #666; text-align: center;">
+    This message was sent to {{ user_email }}. If you did not create an account with {{ app_name }}, please disregard this email or contact our support team.
+  </p>
+{% endblock %}

@@ -2,12 +2,14 @@ import uuid
 import random
 import asyncio
 from datetime import datetime, timedelta
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Depends
 from slowapi import Limiter
+from jose import jwt, JWTError, ExpiredSignatureError
 from slowapi.util import get_remote_address
-from ..services.email import send_otp_email
-from ..services.auth import generate_otp, verify_otp_service, authenticate_user, create_access_token
-from ..services.utils import get_password_hash  # Corrected import for password hashing
+from app.services.email import templates, APP_NAME, SUPPORT_EMAIL, send_email
+from ..services.email import send_otp_email,  send_admin_notification_email, send_welcome_email
+from ..services.auth import generate_otp, verify_otp_service, authenticate_user, create_access_token, get_current_user, validate_password, validate_registration_role
+from ..services.utils import get_password_hash
 from ..database import get_database
 from ..schemas.auth import ForgotPasswordRequest, ResetPasswordRequest, VerifyOtpRequest
 from ..schemas.user import UserCreate, UserResponse, LoginRequest, OTPRequest, OTPResponse
@@ -18,7 +20,6 @@ from app.config import settings
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 limiter = Limiter(key_func=get_remote_address)
 
-otp_store = {}
 # Token expiration time from config
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
@@ -27,10 +28,23 @@ ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 async def register(request: Request, user: UserCreate):
     db = await get_database()
 
+    validate_password(user.password)
+
     # Check if email already exists
     existing_user = await db["users"].find_one({"email": user.email.lower()})
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
+
+    validate_registration_role(user.role)
+
+    if user.role == "hr":
+        if not user.invite_token:
+            raise HTTPException(status_code=400, detail="Invite token required for HR registration")
+
+        invited_email = verify_hr_invite_token(user.invite_token)
+
+        if user.email.lower() != invited_email.lower():
+            raise HTTPException(status_code=400, detail="Invite token does not match the provided email")
 
     # Generate unique client ID and secure password
     client_id = str(uuid.uuid4())
@@ -38,13 +52,11 @@ async def register(request: Request, user: UserCreate):
 
     # Generate OTP
     otp_response = await generate_otp(user.email, user.Name)
-    print(f"🔍 OTP Response: {otp_response}")  # Debugging line
 
     if "error" in otp_response:
         raise HTTPException(status_code=400, detail=otp_response["error"])
 
     otp = otp_response["otp"]
-    print(f"Generated OTP: {otp}")
 
     # Create new user document (Ensure OTP is stored here)
     new_user = {
@@ -55,16 +67,21 @@ async def register(request: Request, user: UserCreate):
         "role": user.role,
         "is_verified": False,
         "otp": otp,  # Store OTP in the database
-        "otp_expires_at": datetime.utcnow() + timedelta(minutes=5)
+        "otp_expires_at": datetime.utcnow() + timedelta(minutes=5),
+        "created_at": datetime.utcnow(),
+        "otp_attempts": 0,
+        "login_attempts": 0
     }
 
     # Insert user into MongoDB
     result = await db["users"].insert_one(new_user)
+    await send_otp_email(user.email, user.Name, otp)
+    await send_welcome_email(user.email, user.Name)
+    email_response = await send_admin_notification_email(user.Name, user.email, user.role)
     
-    email_response = await send_otp_email(user.email, user.Name, otp)
-
     if email_response is False:
-        raise HTTPException(status_code=500, detail="Failed to send OTP")
+        raise HTTPException(status_code=500, detail="Failed to notify admin.")
+
 
     return UserResponse(
         id=str(result.inserted_id),
@@ -76,15 +93,17 @@ async def register(request: Request, user: UserCreate):
 
 
 @router.post("/generate-otp")
-async def generate_otp_route(email: str, user_name: str):
-    otp_response = await generate_otp(email, user_name)
+async def generate_otp_route(email: str, user_name: str, user=Depends(get_current_user)):
+    response = await generate_otp(email, user_name)
 
-    print(f"🔍 OTP Response: {otp_response}")  # Debugging line
+    if "error" in response:
+        raise HTTPException(status_code=400, detail=response["error"])
 
-    if "error" in otp_response:
-        raise HTTPException(status_code=400, detail=otp_response["error"])
+    return {"otp": response["otp"]}
 
-    return {"otp": otp_response["otp"]}
+@router.post("/verify-otp")
+async def verify_otp(request: Request, body: VerifyOtpRequest):
+    return await verify_otp_service(body.email, body.otp)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -96,12 +115,6 @@ async def login(request: LoginRequest):
 
     access_token = create_access_token({"sub": user["client_id"], "role": user["role"]})
     return {"access_token": access_token, "token_type": "bearer"}
-
-
-@router.post("/verify-otp")
-async def verify_otp(request: Request, body: VerifyOtpRequest):
-    # Call the service to verify OTP
-    return await verify_otp_service(body.email, body.otp)
 
 
 @router.post("/forgot-password")
@@ -151,6 +164,8 @@ async def reset_password(request: Request, body: ResetPasswordRequest):
     if user.get("reset_otp") != body.otp:
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
+    validate_password(body.new_password)
+
     # Hash the new password
     hashed_password = get_password_hash(body.new_password)
 
@@ -159,6 +174,16 @@ async def reset_password(request: Request, body: ResetPasswordRequest):
         {"email": body.email},
         {"$set": {"password": hashed_password}, "$unset": {"reset_otp": "", "reset_otp_expires_at": ""}}
     )
+
+    html = templates.get_template("emails/password_reset_success.html").render(
+        user_name=user.get("Name", user["email"]),
+        app_name=APP_NAME,
+        support_email=SUPPORT_EMAIL,
+        year=datetime.utcnow().year
+)
+
+    await send_email(user["email"], "Your password has been reset", html)
+
 
     return {"message": "Password reset successful"}
 
@@ -180,9 +205,27 @@ async def login_for_access_token(request: Request, login_data: LoginRequest):
 
 @router.post("/send-otp/", response_model=OTPResponse)
 async def send_otp(request: OTPRequest):
-    response = await send_otp_email(request.email)
+    response = await generate_otp(request.email, request.name)
 
     if "error" in response:
         raise HTTPException(status_code=500, detail=response["error"])
 
     return OTPResponse(message=response["message"])
+
+from app.config import settings
+
+...
+
+def verify_hr_invite_token(token: str):
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+
+        if payload.get("type") != "invite" or payload.get("role") != "hr":
+            raise HTTPException(status_code=400, detail="Invalid invite token")
+
+        return payload["email"]
+
+    except ExpiredSignatureError:
+        raise HTTPException(status_code=400, detail="Invite token expired")
+    except JWTError:
+        raise HTTPException(status_code=400, detail="Invalid invite token")

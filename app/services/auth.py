@@ -1,33 +1,40 @@
 import bcrypt
-from datetime import datetime, timedelta
-from jose import JWTError, jwt, ExpiredSignatureError
-from fastapi import HTTPException, status, Depends
-from fastapi.security import OAuth2PasswordBearer
-import logging
 import random
 import re
+import logging
+from datetime import datetime, timedelta
+from jose import jwt, JWTError, ExpiredSignatureError
+from fastapi import HTTPException, status, Depends
+from fastapi.security import OAuth2PasswordBearer
+from passlib.context import CryptContext
+from app.schemas.enums import UserRole
 from app.config import settings
 from app.database import get_database
-from .email import send_otp_email
+from .email import send_otp_email, send_admin_notification_email, send_welcome_email
 
-# Load settings
+# Configuration
 SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = settings.ALGORITHM
-otp_db = {}
-
-# Initialize logger
-logger = logging.getLogger(__name__)
-
-# OAuth2 token authentication
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
-
-# Default token expiry time
+MAX_OTP_ATTEMPTS = 5
+MAX_LOGIN_ATTEMPTS = 5
+ACCOUNT_LOCK_DURATION = timedelta(minutes=15)
 DEFAULT_EXPIRY = timedelta(hours=1)
+
+# Logger and security tools
+logger = logging.getLogger(__name__)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def validate_registration_role(role: UserRole):
+    if role != UserRole.candidate:
+        raise HTTPException(
+            status_code=403,
+            detail="Only candidates can self-register. HR and Admin accounts must be created by an administrator."
+        )
 
 
 async def get_user(client_id: str):
-    # Fetch user details from the database using client_id.
-    # Returns a dictionary with user details if found, else None.
     try:
         db = await get_database()
         user = await db["users"].find_one({"client_id": client_id})
@@ -49,12 +56,6 @@ async def get_user(client_id: str):
 
 
 def validate_password(password: str):
-    # Validates password complexity:
-    # - At least 8 characters long
-    # - At least 1 uppercase letter
-    # - At least 1 digit
-    # - At least 1 special character
-
     try:
         if len(password) < 8:
             raise ValueError("Password must be at least 8 characters long")
@@ -69,44 +70,76 @@ def validate_password(password: str):
 
 
 def hash_password(password: str) -> str:
-    """Hashes the password using bcrypt."""
     salt = bcrypt.gensalt()
     hashed_password = bcrypt.hashpw(password.encode('utf-8'), salt)
     return hashed_password.decode('utf-8')
 
 
 def verify_password(password: str, hashed_password: str) -> bool:
-    """Verifies the password against the hashed password."""
     return bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8'))
 
 
 async def authenticate_user(email: str, password: str):
-    # Authenticates the user by checking email and password.
-    # Returns the user document if authenticated, else None.
+    db = await get_database()
+    user = await db["users"].find_one({"email": email.lower()})
 
-    try:
-        db = await get_database()
-        user = await db["users"].find_one({"email": email.lower()})
-
-        if not user:
-            logger.warning(f"⚠️ User not found: {email}")
-            return None
-
-        if "password" not in user:
-            logger.warning("❌ Password field missing!")
-            return None
-
-        logger.info("✅ User authenticated successfully")
-        return user
-
-    except Exception as e:
-        logger.error(f"❌ Error in authentication: {str(e)}")
+    if not user or "password" not in user:
         return None
+
+    # Unlock account if lock period has passed
+    if user.get("locked_until") and datetime.utcnow() >= user["locked_until"]:
+        await db["users"].update_one(
+            {"email": email.lower()},
+            {
+                "$set": {"login_attempts": 0},
+                "$unset": {"is_locked": "", "locked_until": ""}
+            }
+        )
+        user["login_attempts"] = 0
+        user.pop("is_locked", None)
+        user.pop("locked_until", None)
+
+    # Still locked?
+    if user.get("is_locked"):
+        locked_until = user.get("locked_until", datetime.utcnow())
+        if datetime.utcnow() < locked_until:
+            remaining_time = locked_until - datetime.utcnow()
+            minutes, seconds = divmod(remaining_time.total_seconds(), 60)
+            raise HTTPException(
+                status_code=403,
+                detail=f"Account temporarily locked. Try again in {int(minutes)} minutes and {int(seconds)} seconds."
+            )
+
+    # Verify password
+    if not verify_password(password, user["password"]):
+        await db["users"].update_one(
+            {"email": email.lower()},
+            {"$inc": {"login_attempts": 1}}
+        )
+
+        user = await db["users"].find_one({"email": email.lower()})
+        if user.get("login_attempts", 0) >= MAX_LOGIN_ATTEMPTS:
+            await db["users"].update_one(
+                {"email": email.lower()},
+                {"$set": {
+                    "is_locked": True,
+                    "locked_until": datetime.utcnow() + ACCOUNT_LOCK_DURATION
+                }}
+            )
+            raise HTTPException(status_code=403, detail="Account locked due to failed login attempts")
+
+        return None
+
+    # Reset login attempts
+    await db["users"].update_one(
+        {"email": email.lower()},
+        {"$set": {"login_attempts": 0}, "$unset": {"is_locked": "", "locked_until": ""}}
+    )
+
+    return user
 
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
-    # Decodes JWT token and fetches the current user.
-    # Raises an error if the token is invalid or expired.
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -116,7 +149,6 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         client_id: str = payload.get("sub")
-
         if client_id is None:
             raise credentials_exception
 
@@ -140,14 +172,10 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 
 
 def get_current_user_role(current_user: dict = Depends(get_current_user)):
-    # Extracts the user role from the current authenticated user.
     return current_user["role"]
 
 
 def require_role(required_role: str):
-
-    # Middleware to check if a user has the required role.
-    # Admins are allowed to access all protected routes.
     def role_dependency(user_role: str = Depends(get_current_user_role)):
         if user_role not in ["admin", required_role]:
             raise HTTPException(
@@ -159,7 +187,6 @@ def require_role(required_role: str):
 
 
 def create_access_token(data: dict, expires_delta: timedelta = DEFAULT_EXPIRY):
-    # Generate a JWT access token with an expiration time.
     try:
         to_encode = data.copy()
         expire = datetime.utcnow() + expires_delta
@@ -177,18 +204,16 @@ def create_access_token(data: dict, expires_delta: timedelta = DEFAULT_EXPIRY):
 async def generate_otp(email: str, user_name: str):
     try:
         otp = str(random.randint(100000, 999999))
-
-        # 🔍 Wait for a proper response from `send_otp_email()`
         email_response = await send_otp_email(email, user_name, otp)
         print(f"📧 Email Response: {email_response}")
 
-        if not email_response:  # If `send_otp_email()` returns `False`
+        if not email_response:
             return {"error": "Failed to send OTP"}
 
         return {"otp": otp}
 
     except Exception as e:
-        print(f"⚠️ Error in generate_otp: {e}")  # Debugging
+        print(f"⚠️ Error in generate_otp: {e}")
         return {"error": str(e)}
 
 
@@ -216,7 +241,6 @@ async def verify_otp_service(email: str, otp: str):
         )
         raise HTTPException(status_code=400, detail="Invalid OTP")
 
-    # OTP valid
     await db["users"].update_one(
         {"email": email},
         {
@@ -225,4 +249,16 @@ async def verify_otp_service(email: str, otp: str):
         }
     )
 
+    await send_welcome_email(email, user.get("Name", "User"))
+
     return {"message": "OTP verified successfully"}
+
+
+def generate_hr_invite_token(email: str, expires_in_minutes: int = 60):
+    payload = {
+        "email": email,
+        "role": "hr",
+        "exp": datetime.utcnow() + timedelta(minutes=expires_in_minutes),
+        "type": "invite"
+    }
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
