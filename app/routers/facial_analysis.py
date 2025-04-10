@@ -4,9 +4,9 @@ import shutil
 import tempfile
 import os
 import logging
+from app.services.ai.ai_analysis import analyze_video_audio
 from app.services.ai.facial_analysis import (
     analyze_facial_expression,
-    analyze_video_audio,
 )
 
 router = APIRouter(prefix="/api", tags=["Facial & Speech Analysis"])
@@ -27,34 +27,34 @@ ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png"}
 async def analyze_facial(file: UploadFile = File(...)):
     temp_video_path = None
     try:
-        # Validate file type for video
         if file.content_type not in ALLOWED_VIDEO_TYPES:
-            logger.error(f"🚨 Unsupported file type: {file.content_type}")
             raise HTTPException(status_code=400, detail="Only MP4 video files are allowed.")
 
-        # Save the uploaded video file to a temporary file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_video:
             shutil.copyfileobj(file.file, temp_video)
             temp_video_path = temp_video.name
 
-        # Perform facial expression analysis
         result = await analyze_facial_expression(temp_video_path)
 
-        # Return the result of facial expression analysis
-        return {"facial_expression": result}
+        if result["status"] != "success":
+            raise HTTPException(status_code=500, detail=result["message"])
+
+        # Split data for frontend and internal use
+        full_data = result["data"]
+        summary_data = full_data.get("summary")
+
+        return {
+            "status": "success",
+            "message": "Facial expression analysis completed.",
+            "data": summary_data  # send only summary to frontend
+        }
 
     except HTTPException as he:
-        # Log and raise HTTP exceptions (file type validation errors)
-        logger.error(f"HTTP Exception: {he.detail}")
         raise he
-
     except Exception as e:
-        # Log other errors that occur during analysis
-        logger.error(f"❌ Error analyzing facial expression: {str(e)}")
+        logger.error(f"Facial analysis error: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
-
     finally:
-        # Cleanup: close the uploaded file and remove the temporary video file
         try:
             file.file.close()
             if temp_video_path and os.path.exists(temp_video_path):

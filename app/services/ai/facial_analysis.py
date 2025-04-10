@@ -1,5 +1,8 @@
 import cv2
+import logging
 import numpy as np
+from fastapi import UploadFile
+import tempfile
 from deepface import DeepFace
 from collections import Counter
 import speech_recognition as sr
@@ -7,17 +10,17 @@ from typing import Dict, Any, Optional
 from bson import ObjectId
 from datetime import datetime
 
-
+logger = logging.getLogger(__name__)
 # --------------------------------------------
 # Frame-by-Frame Facial Emotion Extraction
 # --------------------------------------------
-def extract_framewise_emotions(video_path: str) -> Dict[str, Any]:
+def extract_framewise_emotions(video_path: str, seconds_between_frames: int = 3):
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise ValueError("Failed to open video file.")
 
     fps = int(cap.get(cv2.CAP_PROP_FPS))
-    frame_interval = max(1, fps // 2)
+    frame_interval = max(1, fps * seconds_between_frames)
     frame_count = 0
     framewise_results = []
     all_emotions = []
@@ -33,29 +36,29 @@ def extract_framewise_emotions(video_path: str) -> Dict[str, Any]:
                 dominant_emotion = analysis[0]["dominant_emotion"]
                 all_emotions.append(dominant_emotion)
                 framewise_results.append({
-                    "time": frame_count // fps,
+                    "time": round(frame_count / fps, 2),
                     "dominant_emotion": dominant_emotion,
                     "emotion_scores": analysis[0]["emotion"]
                 })
             except Exception as e:
-                print(f"[ERROR] Frame {frame_count}: {str(e)}")
+                logger.error(f"[ERROR] Frame {frame_count}: {str(e)}")
 
         frame_count += 1
 
     cap.release()
-
+    return framewise_results
+# -------------------------------------------------
+# THIS is for extracting emotions from a video and give summarize
+# -------------------------------------------------
+def summarize_emotions(framewise_data):
+    all_emotions = [f["dominant_emotion"] for f in framewise_data]
     emotion_counts = dict(Counter(all_emotions))
     most_common = Counter(all_emotions).most_common(3)
 
     return {
-        "framewise_emotions": framewise_results,
-        "summary": {
-            "dominant_emotions": emotion_counts,
-            "top_3": most_common
-        }
+        "dominant_emotions": emotion_counts,
+        "top_3": most_common
     }
-
-
 # -------------------------------------------------
 # Async Wrapper for Facial Analysis
 # -------------------------------------------------
@@ -74,6 +77,35 @@ async def analyze_facial_expression(video_path: str) -> Dict[str, Any]:
             "data": None
         }
 
+# --------------------------------------------
+# Frame Facial Emotion Analysis (single image frame)
+# --------------------------------------------
+async def analyze_facial_expression_frame(file: UploadFile) -> Dict[str, Any]:
+    try:
+        # Save frame temporarily
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+            tmp.write(await file.read())
+            temp_path = tmp.name
+
+        analysis = DeepFace.analyze(img_path=temp_path, actions=["emotion"], enforce_detection=False)
+        emotion_data = analysis[0]
+
+        return {
+            "status": "success",
+            "message": "Frame emotion analysis completed.",
+            "data": {
+                "dominant_emotion": emotion_data["dominant_emotion"],
+                "emotion_scores": emotion_data["emotion"]
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Error in frame analysis: {e}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "data": None
+        }
 
 # -------------------------------------------------
 # Async Wrapper for Audio Transcription
@@ -111,95 +143,3 @@ async def analyze_speech(audio_path: str) -> Dict[str, Any]:
             "message": str(e),
             "data": None
         }
-
-
-# -------------------------------------------------
-# Combined Video + Audio Analysis
-# -------------------------------------------------
-async def analyze_video_audio(video_path: str, audio_path: str) -> Dict[str, Any]:
-    try:
-        facial_result = await analyze_facial_expression(video_path)
-        speech_result = await analyze_speech(audio_path)
-
-        return {
-            "status": "success",
-            "message": "Combined video and audio analysis completed.",
-            "data": {
-                "facial_analysis": facial_result.get("data"),
-                "speech_analysis": speech_result.get("data")
-            }
-        }
-
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": str(e),
-            "data": None
-        }
-
-
-# -------------------------------------------------
-# Save Analysis Result to MongoDB
-# -------------------------------------------------
-async def save_interview_analysis_to_db(
-    db, user_id: str, interview_id: str,
-    facial_result: Dict[str, Any],
-    speech_result: Optional[Dict[str, Any]] = None
-) -> str:
-
-    feedback = generate_candidate_feedback(facial_result, speech_result)
-
-    analysis_doc = {
-        "user_id": ObjectId(user_id),
-        "interview_id": ObjectId(interview_id),
-        "facial_analysis": facial_result,
-        "speech_analysis": speech_result,
-        "ai_feedback": feedback,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
-    }
-
-    await db["interview_analysis"].insert_one(analysis_doc)
-
-    # Optional: update interview document status
-    await db["interviews"].update_one(
-        {"_id": ObjectId(interview_id)},
-        {
-            "$set": {
-                "status": "analyzed",
-                "updated_at": datetime.utcnow()
-            },
-            "$push": {
-                "status_history": "analyzed"
-            }
-        }
-    )
-
-    return feedback
-
-
-# -------------------------------------------------
-# Generate Feedback from Analysis
-# -------------------------------------------------
-def generate_candidate_feedback(
-    facial_result: Dict[str, Any],
-    speech_result: Optional[Dict[str, Any]] = None
-) -> str:
-
-    emotions_summary = facial_result.get("summary", {})
-    top_emotions = emotions_summary.get("top_3", [])
-    common_emotion = top_emotions[0][0] if top_emotions else "neutral"
-
-    feedback = f"You appeared mostly {common_emotion} during the interview. "
-
-    if speech_result:
-        speech_score = speech_result.get("speech_score", 0)
-        feedback += f"Your speech clarity score was {speech_score}/10. "
-
-        if speech_score > 7:
-            feedback += "You spoke confidently. "
-        else:
-            feedback += "Try to speak more clearly next time. "
-
-    feedback += "Overall, you performed decently. Keep practicing for improvement."
-    return feedback

@@ -6,10 +6,7 @@ from app.services.interview_question import QuestionService
 from app.database import get_database
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-router = APIRouter(
-    prefix="/questions",
-    tags=["Interview Questions"]
-)
+router = APIRouter()
 
 
 logger = logging.getLogger(__name__)
@@ -17,7 +14,7 @@ logger.info("Seeding questions...")
 
 
 @router.get("/experience/{experience_level}", response_model=List[QuestionModel])
-async def get_questions_by_experience(
+async def get_questions(
     experience_level: str,
     db: AsyncIOMotorDatabase = Depends(get_database)
 ):
@@ -30,7 +27,7 @@ async def get_questions_by_experience(
             detail="Invalid experience level. Choose from 'fresher', 'experienced', or 'both'."
         )
     
-    questions = await QuestionService.get_questions_by_experience(db, experience_level)
+    questions = await QuestionService.get_questions(db, experience_level=experience_level)
     return questions
 
 @router.post("/seed", status_code=status.HTTP_201_CREATED)
@@ -57,3 +54,4 @@ async def search_questions(
     db: AsyncIOMotorDatabase = Depends(get_database)
 ):
     return await QuestionService.search_questions(db, category, keyword, difficulty)
+

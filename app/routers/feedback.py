@@ -43,9 +43,7 @@ async def websocket_feedback(websocket: WebSocket, interview_id: str):
 
             logger.info(f"🧠 Analyzing: {video_path} + {audio_path}")
             try:
-                feedback = await asyncio.to_thread(
-                    analyze_video_audio, video_path, audio_path
-                )
+                feedback = await analyze_video_audio(video_path, audio_path)
 
                 await websocket.send_json({
                     "interview_id": interview_id,

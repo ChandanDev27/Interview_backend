@@ -43,6 +43,14 @@ class QuestionBase(BaseModel):
         return v.strip().title()
 
 
+    @field_validator("tips", mode="before")
+    @classmethod
+    def convert_tips_list_to_string(cls, v):
+        if isinstance(v, list):
+            return " ".join(v)
+        return v
+
+
 class QuestionCreate(QuestionBase):
     pass
 
@@ -58,6 +66,7 @@ class QuestionResponse(QuestionBase):
     class Config:
         json_encoders = {BsonObjectId: str}
         populate_by_name = True
+        allow_population_by_field_name = True
 
 
 class QuestionUpdate(BaseModel):
@@ -85,6 +94,13 @@ class QuestionUpdate(BaseModel):
         description="Updated example answer",
         example="In a past project, I resolved a misunderstanding by arranging a 1-on-1 meeting..."
     )
+
+    @field_validator("tips", mode="before")
+    @classmethod
+    def convert_tips_list_to_string(cls, v):
+        if isinstance(v, list):
+            return " ".join(v)
+        return v
 
 
 class QuestionModel(QuestionResponse):

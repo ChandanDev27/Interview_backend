@@ -1,6 +1,6 @@
 from fastapi import APIRouter, File, UploadFile, HTTPException
 import logging
-from app.services.ai.ai_analysis import analyze_facial_expression_frame
+from app.services.ai.facial_analysis import analyze_facial_expression_frame
 
 router = APIRouter(prefix="/api/ai", tags=["AI Analysis"])
 

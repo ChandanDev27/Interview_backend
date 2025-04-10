@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, FieldValidationInfo
 from typing import List, Optional
 from datetime import datetime
 from enum import Enum
@@ -39,9 +39,9 @@ class InterviewResponse(BaseModel):
 
     @field_validator("responses", mode="before")
     @classmethod
-    def match_response_list(cls, v, values):
-        if not v and "questions" in values:
-            return [None] * len(values["questions"])
+    def match_response_list(cls, v, info: FieldValidationInfo):
+        if not v and "questions" in info.data:
+            return [None] * len(info.data["questions"])
         return v
 
     class Config:

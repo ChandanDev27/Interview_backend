@@ -6,7 +6,7 @@ from typing import List
 import logging
 import tempfile
 import os
-
+from app.services.utils import extract_audio_from_video
 from app.services.ai.save_analysis import save_interview_analysis_to_db
 from app.database import get_database
 from ..schemas.interview import (
@@ -137,33 +137,32 @@ async def store_ai_feedback(
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 
-@router.post("/interview/{interview_id}/analyze/final")
+@router.post("/{interview_id}/analyze/final")
 async def finalize_interview_analysis(
     interview_id: str,
     user_id: str = Form(...),
     video: UploadFile = File(...),
-    audio: UploadFile = File(...),
     db: AsyncIOMotorDatabase = Depends(get_database)
 ):
     video_path = audio_path = None
     try:
+        # Validate
         interview = await db["interviews"].find_one({"_id": ObjectId(interview_id), "user_id": user_id})
         if not interview:
             raise HTTPException(status_code=404, detail="Interview not found or unauthorized")
 
         if video.content_type not in ALLOWED_VIDEO_MIME_TYPES:
             raise HTTPException(status_code=400, detail="Unsupported video MIME type")
-        if audio.content_type not in ALLOWED_AUDIO_MIME_TYPES:
-            raise HTTPException(status_code=400, detail="Unsupported audio MIME type")
 
+        # Save video
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_video:
             temp_video.write(await video.read())
             video_path = temp_video.name
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
-            temp_audio.write(await audio.read())
-            audio_path = temp_audio.name
+        # Extract audio
+        audio_path = extract_audio_from_video(video_path)
 
+        # Run analysis
         facial_result = extract_framewise_emotions(video_path)
         speech_result = await analyze_speech(audio_path)
 
@@ -187,7 +186,6 @@ async def finalize_interview_analysis(
     finally:
         try:
             video.file.close()
-            audio.file.close()
             if video_path and os.path.exists(video_path):
                 os.remove(video_path)
             if audio_path and os.path.exists(audio_path):

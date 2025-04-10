@@ -173,6 +173,16 @@ class QuestionService:
             }
         ]
 
+        existing = await db["questions"].count_documents({})
+        if existing == 0:
+            try:
+                await db["questions"].insert_many(questions_data)
+                logger.info("✅ Seeded interview questions into the database.")
+            except Exception as e:
+                logger.error(f"⚠️ Failed to seed questions: {e}")
+        else:
+            logger.info("ℹ️ Questions already seeded, skipping insertion.")
+
         await QuestionService.create_indexes(db)
 
     @staticmethod
@@ -183,7 +193,7 @@ class QuestionService:
         keyword: Optional[str] = None,
         skip: int = 0,
         limit: int = 10
-    ) -> List[dict]:
+    ) -> List[QuestionModel]:
         """Fetches questions with optional filtering, keyword search, and pagination."""
         query = {}
 
@@ -197,9 +207,12 @@ class QuestionService:
         if keyword:
             query["$text"] = {"$search": keyword}
 
-        projection = {"_id": 0}
-        results = await db["questions"].find(query, projection).skip(skip).limit(limit).to_list(length=None)
-        return results
+        projection = {}
+        results = await db["questions"].find(query, projection).skip(skip).limit(limit).to_list(length=limit)
+        for doc in results:
+            doc["_id"] = str(doc["_id"])
+
+        return [QuestionModel(**doc) for doc in results]
 
     @staticmethod
     async def add_question(db, question_data: dict) -> dict:
@@ -214,6 +227,7 @@ class QuestionService:
         except Exception as e:
             logger.error(f"Error adding question: {e}")
             return {"error": str(e)}
+
 
     @staticmethod
     async def update_question(db, question_id: str, update_data: dict) -> dict:

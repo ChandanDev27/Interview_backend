@@ -1,6 +1,6 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, status, Depends
 import logging
-from typing import Dict
+from typing import Dict, Any
 from app.services.ai.facial_analysis import analyze_facial_expression_frame
 # from app.services.auth import get_current_user
 
@@ -12,7 +12,7 @@ router = APIRouter(
 logger = logging.getLogger(__name__)
 
 
-@router.post("/frame", response_model=Dict[str, str])
+@router.post("/frame", response_model=Dict[str, Any])
 async def receive_frame(
     file: UploadFile = File(...),
     # current_user: dict = Depends(get_current_user)
@@ -28,7 +28,7 @@ async def receive_frame(
 
     try:
         logger.info(f"📸 Received frame: {file.filename}, Content-Type: {file.content_type}")
-        result = await analyze_facial_expression_frame(file.file)
+        result = await analyze_facial_expression_frame(file)
         logger.info(f"✅ Analysis result: {result}")
         return result
 

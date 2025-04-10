@@ -2,13 +2,14 @@ from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 from bson import ObjectId, errors
-from app.database import MongoDBManager, get_database
+from app.database import MongoDBManager, get_database, mongodb_manager
 from app.routers import (
     auth, user, interview, facial_analysis, feedback, websocket, health,
     speech_analysis, interview_question, ai_analysis, candidate_answers
 )
 from app.routers.websocket import router as websocket_router
 from app.schemas.user import User
+from app.services.interview_question import QuestionService
 from app.config import settings, logger
 from slowapi.errors import RateLimitExceeded
 from starlette.responses import JSONResponse
@@ -64,6 +65,8 @@ async def ensure_indexes():
 async def startup_event():
     await mongo_manager.connect()
     await ensure_indexes()
+    db = mongodb_manager.db
+    await QuestionService.seed_questions(db)
 
 @app.on_event("shutdown")
 async def shutdown_event():
