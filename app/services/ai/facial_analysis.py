@@ -1,20 +1,19 @@
+import os
 import cv2
 import logging
-import numpy as np
-from fastapi import UploadFile
 import tempfile
+from fastapi import UploadFile
 from deepface import DeepFace
 from collections import Counter
-import speech_recognition as sr
-from typing import Dict, Any, Optional
-from bson import ObjectId
-from datetime import datetime
+from typing import Dict, Any
+from fastapi.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__name__)
+
 # --------------------------------------------
 # Frame-by-Frame Facial Emotion Extraction
 # --------------------------------------------
-def extract_framewise_emotions(video_path: str, seconds_between_frames: int = 3):
+def extract_framewise_emotions(video_path: str, seconds_between_frames: int = 1):  # 1 second interval
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise ValueError("Failed to open video file.")
@@ -42,29 +41,25 @@ def extract_framewise_emotions(video_path: str, seconds_between_frames: int = 3)
                 })
             except Exception as e:
                 logger.error(f"[ERROR] Frame {frame_count}: {str(e)}")
+                framewise_results.append({
+                    "time": round(frame_count / fps, 2),
+                    "dominant_emotion": "error",  # indicate error in processing
+                    "emotion_scores": {}
+                })
 
         frame_count += 1
 
     cap.release()
     return framewise_results
-# -------------------------------------------------
-# THIS is for extracting emotions from a video and give summarize
-# -------------------------------------------------
-def summarize_emotions(framewise_data):
-    all_emotions = [f["dominant_emotion"] for f in framewise_data]
-    emotion_counts = dict(Counter(all_emotions))
-    most_common = Counter(all_emotions).most_common(3)
 
-    return {
-        "dominant_emotions": emotion_counts,
-        "top_3": most_common
-    }
+
 # -------------------------------------------------
-# Async Wrapper for Facial Analysis
+# Async Wrapper for Facial Expression Analysis
 # -------------------------------------------------
 async def analyze_facial_expression(video_path: str) -> Dict[str, Any]:
     try:
-        analysis_result = extract_framewise_emotions(video_path)
+        # Running the emotion extraction in a thread pool to avoid blocking the event loop
+        analysis_result = await run_in_threadpool(extract_framewise_emotions, video_path)
         return {
             "status": "success",
             "message": "Facial expression analysis completed.",
@@ -77,9 +72,10 @@ async def analyze_facial_expression(video_path: str) -> Dict[str, Any]:
             "data": None
         }
 
-# --------------------------------------------
+
+# -------------------------------------------------
 # Frame Facial Emotion Analysis (single image frame)
-# --------------------------------------------
+# -------------------------------------------------
 async def analyze_facial_expression_frame(file: UploadFile) -> Dict[str, Any]:
     try:
         # Save frame temporarily
@@ -87,8 +83,12 @@ async def analyze_facial_expression_frame(file: UploadFile) -> Dict[str, Any]:
             tmp.write(await file.read())
             temp_path = tmp.name
 
+        # Ensure the file is a valid image (add further checks for file type/size if needed)
         analysis = DeepFace.analyze(img_path=temp_path, actions=["emotion"], enforce_detection=False)
         emotion_data = analysis[0]
+
+        # Clean up the temporary file
+        os.remove(temp_path)
 
         return {
             "status": "success",
@@ -101,43 +101,6 @@ async def analyze_facial_expression_frame(file: UploadFile) -> Dict[str, Any]:
 
     except Exception as e:
         logger.error(f"Error in frame analysis: {e}")
-        return {
-            "status": "error",
-            "message": str(e),
-            "data": None
-        }
-
-# -------------------------------------------------
-# Async Wrapper for Audio Transcription
-# -------------------------------------------------
-async def analyze_speech(audio_path: str) -> Dict[str, Any]:
-    recognizer = sr.Recognizer()
-
-    try:
-        with sr.AudioFile(audio_path) as source:
-            audio = recognizer.record(source)
-            transcript = recognizer.recognize_google(audio)
-            print("Transcript:", transcript)
-
-            # Placeholder speech clarity score
-            speech_score = 8  # You can replace this with a real metric later
-
-            return {
-                "status": "success",
-                "message": "Speech transcription completed.",
-                "data": {
-                    "transcript": transcript,
-                    "speech_score": speech_score
-                }
-            }
-
-    except sr.UnknownValueError:
-        return {
-            "status": "error",
-            "message": "Could not understand audio",
-            "data": None
-        }
-    except Exception as e:
         return {
             "status": "error",
             "message": str(e),

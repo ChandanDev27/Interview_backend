@@ -6,8 +6,6 @@ from typing import List
 import logging
 import tempfile
 import os
-from app.services.utils import extract_audio_from_video
-from app.services.ai.save_analysis import save_interview_analysis_to_db
 from app.database import get_database
 from ..schemas.interview import (
     InterviewCreate,
@@ -16,8 +14,12 @@ from ..schemas.interview import (
     AIAnalysis,
     AIFeedbackEntry
 )
+from ..services.utils import extract_audio_from_video
+from ..services.ai.save_analysis import save_interview_analysis_to_db
 from ..services.auth import get_current_user
-from app.services.ai.facial_analysis import extract_framewise_emotions, analyze_speech
+from ..services.ai.facial_analysis import extract_framewise_emotions
+from ..services.ai.ai_analysis import analyze_video_audio
+from ..services.ai.speech_analysis import analyze_speech
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 ALLOWED_VIDEO_MIME_TYPES = {"video/mp4", "video/x-msvideo", "video/quicktime"}
@@ -146,7 +148,7 @@ async def finalize_interview_analysis(
 ):
     video_path = audio_path = None
     try:
-        # Validate
+        # ✅ Validate user and interview
         interview = await db["interviews"].find_one({"_id": ObjectId(interview_id), "user_id": user_id})
         if not interview:
             raise HTTPException(status_code=404, detail="Interview not found or unauthorized")
@@ -154,28 +156,35 @@ async def finalize_interview_analysis(
         if video.content_type not in ALLOWED_VIDEO_MIME_TYPES:
             raise HTTPException(status_code=400, detail="Unsupported video MIME type")
 
-        # Save video
+        # ✅ Save uploaded video
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_video:
             temp_video.write(await video.read())
             video_path = temp_video.name
 
-        # Extract audio
+        # ✅ Extract audio from saved video
         audio_path = extract_audio_from_video(video_path)
 
-        # Run analysis
-        facial_result = extract_framewise_emotions(video_path)
-        speech_result = await analyze_speech(audio_path)
+        # ✅ Unified AI analysi
+        result = await analyze_video_audio(video_path, audio_path)
 
+        if result["status"] == "error":
+            raise HTTPException(status_code=500, detail=f"Analysis failed: {result['message']}")
+
+        # ✅ Save analysis and generate feedback
         feedback = await save_interview_analysis_to_db(
-            db, user_id, interview_id, facial_result, speech_result
+            db, user_id, interview_id,
+            facial_result=result["data"]["facial_analysis"],
+            speech_result=result["data"]["speech_analysis"]
         )
+
 
         return {
             "status": "success",
             "message": "Interview analysis complete",
             "feedback_for_candidate": feedback,
-            "facial_analysis": facial_result,
-            "speech_analysis": speech_result
+            "facial_analysis": result["data"]["facial_analysis"],
+            "facial_summary": result["data"]["facial_summary"],
+            "speech_analysis": result["data"]["speech_analysis"]
         }
 
     except InvalidId:
@@ -192,6 +201,7 @@ async def finalize_interview_analysis(
                 os.remove(audio_path)
         except Exception as cleanup_err:
             logger.warning(f"Cleanup warning: {str(cleanup_err)}")
+
 
 
 @router.post("/analyze-facial-expression/")

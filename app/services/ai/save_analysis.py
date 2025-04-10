@@ -3,6 +3,7 @@ from bson import ObjectId
 import logging
 from typing import Dict, Any, Optional, List
 
+# Set up logger
 logger = logging.getLogger(__name__)
 
 def generate_candidate_feedback(
@@ -36,6 +37,7 @@ def generate_candidate_feedback(
             feedback += "Try to speak more clearly next time. "
 
     feedback += "Overall, you performed decently. Keep practicing for improvement."
+    logger.info(f"Generated candidate feedback: {feedback}")
     return feedback
 
 
@@ -94,6 +96,7 @@ def generate_ai_suggestions(
     if not suggestions:
         suggestions.append("Fantastic job! Your communication skills are impressive.")
 
+    logger.info(f"Generated AI suggestions: {suggestions}")
     return suggestions
 
 async def save_interview_analysis_to_db(
@@ -104,16 +107,14 @@ async def save_interview_analysis_to_db(
     speech_result: Optional[dict] = None
 ) -> Optional[Dict[str, Any]]:
     try:
+        # Validate inputs
         if not isinstance(interview_id, str) or not interview_id.strip():
             raise ValueError("Invalid interview_id")
 
         if not isinstance(user_id, str) or not user_id.strip():
             raise ValueError("Invalid user_id")
-
-        # Extract facial data and safely fallback
-        facial_data = facial_result.get("data", []) if isinstance(facial_result, dict) else []
         
-        # Extract facial summary safely
+        # Use the facial_result directly
         facial_summary = {}
         if isinstance(facial_result, dict):
             summary_candidate = facial_result.get("summary", facial_result)
@@ -137,6 +138,17 @@ async def save_interview_analysis_to_db(
                 "speech_rate": summary.get("speech_rate", 0.0)
             }
 
+        # Ensure speech summary values are not null
+        if not speech_summary.get("overall_sentiment"):
+            logger.warning("⚠️ Missing overall_sentiment in speech_result; defaulting to 'neutral'.")
+            speech_summary["overall_sentiment"] = "neutral"
+
+        if not speech_summary.get("intonation"):
+            logger.warning("⚠️ Missing intonation in speech_result; defaulting to 'unknown'.")
+            speech_summary["intonation"] = "neutral"
+        # Log speech summary for debugging
+        logger.debug(f"Speech summary after fallback check: {speech_summary}")
+
         # Generate AI feedback payload
         feedback_payload = {
             "facial_summary": facial_summary,
@@ -146,11 +158,12 @@ async def save_interview_analysis_to_db(
             "timestamp": datetime.utcnow()
         }
 
+        logger.info(f"Saving interview analysis for interview_id: {interview_id} to DB.")
         # Save full analysis to separate collection
         await db["interview_analysis"].insert_one({
             "user_id": user_id,
             "interview_id": interview_id,
-            "facial_analysis": facial_data,
+            "facial_analysis": facial_result,  # Save facial_result directly
             "facial_summary": facial_summary,
             "speech_analysis": speech_result,
             "ai_feedback": feedback_payload,
@@ -173,6 +186,7 @@ async def save_interview_analysis_to_db(
             }
         )
 
+        # Check for modifications
         if update_result.modified_count == 0:
             logger.warning(f"⚠️ No interview updated for interview_id: {interview_id}")
 
@@ -180,5 +194,5 @@ async def save_interview_analysis_to_db(
         return feedback_payload
 
     except Exception as e:
-        logger.error(f"❌ Error saving interview analysis: {str(e)}")
+        logger.error(f"❌ Error saving interview analysis for interview_id: {interview_id}, user_id: {user_id} - {str(e)}")
         return None
