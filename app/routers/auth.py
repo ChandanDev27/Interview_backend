@@ -15,6 +15,7 @@ from ..schemas.auth import ForgotPasswordRequest, ResetPasswordRequest, VerifyOt
 from ..schemas.user import UserCreate, UserResponse, LoginRequest, OTPRequest, OTPResponse
 from ..schemas.token import TokenResponse
 from app.config import settings
+from motor.motor_asyncio import AsyncIOMotorDatabase
 
 # Initialize router and rate limiter
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -229,3 +230,30 @@ def verify_hr_invite_token(token: str):
         raise HTTPException(status_code=400, detail="Invite token expired")
     except JWTError:
         raise HTTPException(status_code=400, detail="Invalid invite token")
+@router.get("/admin/interviews")
+async def get_admin_results(db: AsyncIOMotorDatabase = Depends(get_database)):
+    interviews = await db["interviews"].aggregate([
+        {"$lookup": {
+            "from": "users",
+            "localField": "user_id",
+            "foreignField": "client_id",
+            "as": "user"
+        }},
+        {"$unwind": "$user"},
+        {"$project": {
+            "interview_id": {"$toString": "$_id"},
+            "user_name": "$user.Name",
+            "status": "$status",
+            "score": "$ai_feedback.score",
+            "summary": "$ai_feedback.feedback"
+        }}
+    ]).to_list(length=100)
+
+    # Flatten score and feedback from last AI entry
+    for i in interviews:
+        if isinstance(i["score"], list):
+            i["score"] = i["score"][-1] if i["score"] else None
+        if isinstance(i["summary"], list):
+            i["summary"] = i["summary"][-1] if i["summary"] else None
+
+    return interviews

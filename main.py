@@ -17,7 +17,8 @@ from fastapi.staticfiles import StaticFiles
 import os
 
 app = FastAPI(title="Interview Genie Backend", version="1.0")
-os.makedirs("media/avatars", exist_ok=True)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+media_path = os.path.join(BASE_DIR, "../media")
 
 # CORS middleware
 app.add_middleware(
@@ -29,13 +30,14 @@ app.add_middleware(
 )
 
 # Include Routers
+app.mount("/static", StaticFiles(directory="frontend"), name="static")
 app.include_router(auth.router, tags=["Authentication"])
 app.include_router(user.router)
 app.include_router(interview.router)
 app.include_router(websocket_router, prefix="/api")
 app.include_router(facial_analysis.router)
 app.include_router(speech_analysis.router)
-app.include_router(interview_question.router, prefix="/questions")
+app.include_router(interview_question.router)
 app.include_router(ai_analysis.router)
 app.include_router(candidate_answers.router)
 app.include_router(feedback.router)
@@ -154,4 +156,4 @@ async def get_user(user_id: str, db=Depends(get_database)):
 # Root endpoint
 @app.get("/")
 async def root():
-    return {"message": "Interview Genie API is running!"}
+    return {"message": "Backend running. Go to /static/index.html for the UI."}

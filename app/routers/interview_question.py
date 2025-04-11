@@ -1,16 +1,35 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 import logging
-from typing import List
+from typing import List, Optional
 from app.schemas.interview_question import QuestionModel
 from app.services.interview_question import QuestionService
 from app.database import get_database
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-router = APIRouter()
+router = APIRouter(prefix="/api/questions", tags=["Questions"])
 
 
 logger = logging.getLogger(__name__)
 logger.info("Seeding questions...")
+
+
+@router.get("/", response_model=list[QuestionModel])
+async def get_questions(
+    db: AsyncIOMotorDatabase = Depends(get_database),
+    experience_level: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    keyword: Optional[str] = Query(None),
+    skip: int = 0,
+    limit: int = 50
+):
+    return await QuestionService.get_questions(
+        db=db,
+        experience_level=experience_level,
+        category=category,
+        keyword=keyword,
+        skip=skip,
+        limit=limit
+    )
 
 
 @router.get("/experience/{experience_level}", response_model=List[QuestionModel])

@@ -4,6 +4,7 @@ from bson.errors import InvalidId
 from datetime import datetime
 from typing import List
 import logging
+import subprocess
 import tempfile
 import os
 from app.database import get_database
@@ -14,7 +15,7 @@ from ..schemas.interview import (
     AIAnalysis,
     AIFeedbackEntry
 )
-from ..services.utils import extract_audio_from_video
+from ..services.utils import extract_audio_from_video, get_video_duration
 from ..services.ai.save_analysis import save_interview_analysis_to_db
 from ..services.auth import get_current_user
 from ..services.ai.facial_analysis import extract_framewise_emotions
@@ -22,7 +23,7 @@ from ..services.ai.ai_analysis import analyze_video_audio
 from ..services.ai.speech_analysis import analyze_speech
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
-ALLOWED_VIDEO_MIME_TYPES = {"video/mp4", "video/x-msvideo", "video/quicktime"}
+ALLOWED_VIDEO_MIME_TYPES = {"video/mp4", "video/x-msvideo", "video/quicktime", "video/webm"}
 ALLOWED_AUDIO_MIME_TYPES = {"audio/wav", "audio/x-wav"}
 
 logger = logging.getLogger(__name__)
@@ -139,6 +140,24 @@ async def store_ai_feedback(
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 
+def convert_webm_to_mp4(webm_path: str) -> str:
+    mp4_path = f"{os.path.splitext(webm_path)[0]}.mp4"
+    command = [
+        "ffmpeg",
+        "-y",
+        "-i", webm_path,
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-pix_fmt", "yuv420p",
+        mp4_path
+    ]
+    try:
+        subprocess.run(command, check=True)
+        return mp4_path
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"WebM to MP4 conversion failed: {e}")
+
+
 @router.post("/{interview_id}/analyze/final")
 async def finalize_interview_analysis(
     interview_id: str,
@@ -146,9 +165,8 @@ async def finalize_interview_analysis(
     video: UploadFile = File(...),
     db: AsyncIOMotorDatabase = Depends(get_database)
 ):
-    video_path = audio_path = None
+    webm_path = video_path = audio_path = None
     try:
-        # ✅ Validate user and interview
         interview = await db["interviews"].find_one({"_id": ObjectId(interview_id), "user_id": user_id})
         if not interview:
             raise HTTPException(status_code=404, detail="Interview not found or unauthorized")
@@ -156,27 +174,37 @@ async def finalize_interview_analysis(
         if video.content_type not in ALLOWED_VIDEO_MIME_TYPES:
             raise HTTPException(status_code=400, detail="Unsupported video MIME type")
 
-        # ✅ Save uploaded video
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as temp_video:
+        # Save uploaded video
+        ext = ".webm" if "webm" in video.content_type else ".mp4"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as temp_video:
             temp_video.write(await video.read())
-            video_path = temp_video.name
+            webm_path = temp_video.name
 
-        # ✅ Extract audio from saved video
+        # Convert if needed
+        if ext == ".webm":
+            video_path = convert_webm_to_mp4(webm_path)
+        else:
+            video_path = webm_path
+
+        # 🔍 Duration validation
+        duration = get_video_duration(video_path)
+        if duration < 1:
+            raise HTTPException(status_code=400, detail="Video too short or invalid.")
+
+        # Extract audio
         audio_path = extract_audio_from_video(video_path)
 
-        # ✅ Unified AI analysi
+        # Analyze
         result = await analyze_video_audio(video_path, audio_path)
-
         if result["status"] == "error":
             raise HTTPException(status_code=500, detail=f"Analysis failed: {result['message']}")
 
-        # ✅ Save analysis and generate feedback
+        # Save analysis
         feedback = await save_interview_analysis_to_db(
             db, user_id, interview_id,
             facial_result=result["data"]["facial_analysis"],
             speech_result=result["data"]["speech_analysis"]
         )
-
 
         return {
             "status": "success",
@@ -195,13 +223,14 @@ async def finalize_interview_analysis(
     finally:
         try:
             video.file.close()
-            if video_path and os.path.exists(video_path):
+            if webm_path and os.path.exists(webm_path):
+                os.remove(webm_path)
+            if video_path and os.path.exists(video_path) and video_path != webm_path:
                 os.remove(video_path)
             if audio_path and os.path.exists(audio_path):
                 os.remove(audio_path)
         except Exception as cleanup_err:
             logger.warning(f"Cleanup warning: {str(cleanup_err)}")
-
 
 
 @router.post("/analyze-facial-expression/")
